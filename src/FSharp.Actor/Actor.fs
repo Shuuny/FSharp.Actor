@@ -1,41 +1,125 @@
-﻿namespace FSharp.Actor
+﻿namespace FSharp.Actor 
 
 open System
 open System.Threading
+open System.Collections.Generic
+open Microsoft.FSharp.Reflection
+open System.Runtime.Remoting.Messaging
+open FSharp.Actor
+
 #if INTERACTIVE
 open FSharp.Actor
 #endif
+                
+type Actor<'a>(defn:ActorConfiguration<'a>) as self = 
+    let mailbox = new DefaultMailbox<Message<'a>>() :> IMailbox<_>
+    let logger = Logger.create defn.Path
+    let systemMailbox = new DefaultMailbox<SystemMessage>() :> IMailbox<_>
+    let mutable cts = new CancellationTokenSource()
+    let mutable messageHandlerCancel = new CancellationTokenSource()
+    let mutable defn = defn
+    let mutable ctx = { Mailbox = mailbox; Logger = logger; Children = []; }
+    let mutable status = ActorStatus.Stopped
 
-[<RequireQualifiedAccess>]
-module Actor = 
+    let publishEvent event = 
+        Option.iter (fun (es:IEventStream) -> es.Publish(event)) defn.EventStream
 
-    let fromDefinition config = new Actor<_>(config)
+    let setStatus stats = 
+        status <- stats
 
-    let create name handler = 
-        actor {
-            path name
-            messageHandler handler
-        } |> fromDefinition
+    let shutdown() = 
+        async {
+            messageHandlerCancel.Cancel()
+            publishEvent(ActorEvents.ActorShutdown(ActorRef(self)))
+            match status with
+            | Errored(err) -> logger.Debug("{0} shutdown due to Error: {1}",[|self;err|], None)
+            | _ -> logger.Debug("{0} shutdown",[|self|], None)
+            setStatus ActorStatus.Stopped
+            return ()
+        }
 
-    let ref actor = Local actor
+    let handleError (err:exn) =
+        async {
+            setStatus(ActorStatus.Errored(err))
+            publishEvent(ActorEvents.ActorErrored(ActorRef(self), err))
+            match defn.Supervisor with
+            | Null -> return! shutdown()  
+            | ref -> 
+                [ref] <-- SupervisorMessage.Errored(err)
+                return ()  
+        }
 
-    let sender() = Operations.getSenderRef()
+    let rec messageHandler() =
+        setStatus ActorStatus.Running
+        async {
+            try
+                do! defn.Behaviour ctx
+            with e -> 
+                do! handleError e
+        }
 
-    let resolve path = Operations.resolve path
+    let rec restart() =
+        async { 
+            publishEvent(ActorEvents.ActorRestart(ActorRef(self)))
+            do messageHandlerCancel.Cancel()
+            match status with
+            | Errored(err) -> logger.Debug("{0} restarted due to Error: {1}",[|self;err|], None)
+            | _ -> logger.Debug("{0} restarted",[|self|], None)
+            do start()
+            return! systemMessageHandler()
+        }
 
-    let unType<'a> (actor:IActor<'a>) = 
-        (actor :?> Actor<'a>) :> IActor
+    and systemMessageHandler() = 
+        async {
+            let! sysMsg = systemMailbox.Receive(Timeout.Infinite)
+            match sysMsg with
+            | Shutdown -> return! shutdown()
+            | Restart -> return! restart()
+            | Link(ref) -> 
+                ctx <- { ctx with Children = (ref :: ctx.Children) }
+                return! systemMessageHandler()
+            | Unlink(ref) -> 
+                ctx <- { ctx with Children = (List.filter ((<>) ref) ctx.Children) }
+                return! systemMessageHandler()
+            | SetSupervisor(ref) ->
+               defn <- { defn with Supervisor =  ref }
+               return! systemMessageHandler()
+        }
 
-    let reType<'a> (actor:IActor) = 
-        (actor :?> Actor<'a>) :> IActor<'a>
+    and start() = 
+        if messageHandlerCancel <> null
+        then
+            messageHandlerCancel.Dispose()
+            messageHandlerCancel <- null
+        messageHandlerCancel <- new CancellationTokenSource()
+        Async.Start(async {
+                        CallContext.LogicalSetData("actor", self :> IActor)
+                        publishEvent(ActorEvents.ActorStarted(ActorRef(self)))
+                        do! messageHandler()
+                    }, messageHandlerCancel.Token)
 
-    let register ref = ref |> unType |> ActorSystem.Register
+    do 
+        Async.Start(systemMessageHandler(), cts.Token)
+        start()
+   
+    override x.ToString() = defn.Path
 
-    let spawn config = 
-        config |> (fromDefinition >> register)
+    static member Create(config) = 
+        ActorRef(new Actor<_>(config) :> IActor) 
 
-[<AutoOpen>]
-module ActorOperators = 
-    let inline (!!) path = resolve path
-    let inline (<--) target msg = post target msg
-    let inline (-->) msg target = post target msg
+    interface IActor with
+        member x.Name with get() = defn.Path.ToLower()
+        member x.Post(msg, sender) =
+               match msg with
+               | :? SystemMessage as msg -> systemMailbox.Post(msg)
+               | msg -> mailbox.Post({Target = ActorRef(x); Sender = sender; Message = unbox<'a> msg})
+
+    interface IActor<'a> with
+        member x.Name with get() = defn.Path.ToLower()
+        member x.Post(msg:'a, sender) =
+             mailbox.Post({Target = ActorRef(x); Sender = sender; Message = msg}) 
+
+    interface IDisposable with  
+        member x.Dispose() =
+            messageHandlerCancel.Dispose()
+            cts.Dispose()

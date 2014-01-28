@@ -58,10 +58,9 @@
     <Compile Include="Mailbox.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="EventStream.fs" />
-    <Compile Include="Transport.fs" />
-    <Compile Include="Actor.System.fs" />
+    <Compile Include="Registry.fs" />
+    <Compile Include="Pervasives.fs" />
     <Compile Include="Actor.Configuration.fs" />
-    <Compile Include="Actor.Impl.fs" />
     <Compile Include="Actor.fs" />
     <Compile Include="Supervisor.fs" />
     <None Include="packages.config" />

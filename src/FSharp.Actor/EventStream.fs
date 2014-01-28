@@ -16,7 +16,7 @@ type DefaultEventStream() =
     let rec worker() =
         async {
             let! event = mailbox.Receive(Timeout.Infinite)
-            match subscriptions.TryGetValue(event.Type) with
+            match subscriptions.TryGetValue(event.PayloadType) with
             | true, f -> 
                 try f(event) with e -> logger.Error("Error occured handling event {0}", [|event|], Some e)
             | false, _ -> ()
@@ -32,8 +32,7 @@ type DefaultEventStream() =
     let publish typ (payload:'a) = 
         if (box payload) <> null 
         then
-            let event = Event.Factory.Invoke().SetPayload(Interlocked.Increment(counter), typ, payload)
-            mailbox.Post(event)
+            mailbox.Post({PayloadType = typ; Payload = payload })
     do
         Async.Start(worker(), cts.Token)
 
@@ -41,7 +40,7 @@ type DefaultEventStream() =
         member x.Publish(typ, payload : 'a) = publish typ payload
         member x.Publish(payload : 'a) = publish (typeof<'a>.FullName) payload
         member x.Subscribe(typ, callback) = addSubscription typ callback
-        member x.Subscribe<'a>(callback) = addSubscription (typeof<'a>.FullName) (fun event -> event.As<'a>() |> callback)
+        member x.Subscribe<'a>(callback) = addSubscription (typeof<'a>.FullName) (fun event -> event.Payload |> unbox<'a> |> callback)
         member x.Unsubscribe(typ) = removeSubscription typ
         member x.Unsubscribe<'a>() = removeSubscription (typeof<'a>.FullName)
         member x.Dispose() = 

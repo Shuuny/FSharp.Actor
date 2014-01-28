@@ -17,7 +17,7 @@ module ActorConfiguration =
     type ActorConfigurationBuilder internal() = 
         member x.Zero() = { 
             Path = Guid.NewGuid().ToString(); 
-            EventStream = ActorSystem.EventStream
+            EventStream = None
             Supervisor = Null; 
             Behaviour = emptyBehaviour  }
         member x.Yield(()) = x.Zero()
@@ -37,4 +37,3 @@ module ActorConfiguration =
             { ctx with EventStream = es }
 
     let actor = new ActorConfigurationBuilder()
-

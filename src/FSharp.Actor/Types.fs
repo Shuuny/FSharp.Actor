@@ -23,28 +23,10 @@ type ILogger =
     abstract Warning : string * obj[] * exn option -> unit
     abstract Error : string * obj[] * exn option -> unit
 
-type Event() = 
-    let mutable payload : obj = null
-    let mutable payloadType : string = null
-    let mutable seqId = 0L
-    member x.Payload with get() = payload
-    member x.Type with get() = payloadType
-    member x.SeqId with get() = seqId
-
-    member internal x.SetPayload(seq, typ, evntPayload:'a) =
-        let pl = evntPayload |> box
-        if pl <> null 
-        then 
-            payload <- pl
-            seqId <- seq
-            payloadType <- typ
-        x
-
-    member x.As<'a>() =
-        unbox<'a> x.Payload
-
-    static member Factory =
-        new Func<_>(fun () -> new Event())
+type Event = {
+    Payload : obj
+    PayloadType : string
+}
 
 type IEventStream = 
     inherit IDisposable
@@ -56,32 +38,14 @@ type IEventStream =
     abstract Unsubscribe : string -> unit
 
 type ActorRef = 
-    | Remote of IActorTransport * ActorPath
-    | Local of IActor
+    | ActorRef of IActor
     | Null
-    member x.Path 
-        with get() = 
-           match x with
-           | Remote(t, path) -> t.Scheme + "://" + path
-           | Local(actor) -> "local://" + actor.Name
-           | Null -> String.Empty
-    override x.ToString() = x.Path
-    interface IDisposable with
-        member x.Dispose() =
-            match x with
-            | Local(actor) -> actor.Dispose()
-            | _ -> ()
 
 and Message<'a> = {
     Sender : ActorRef
     Target : ActorRef
     Message : 'a
 }
-
-and IActorTransport = 
-    inherit IDisposable
-    abstract Scheme : string with get
-    abstract Post : Message<obj> -> unit
 
 and IActor = 
     inherit IDisposable
@@ -132,7 +96,7 @@ with
 
 type ActorConfiguration<'a> = {
     Path : ActorPath
-    EventStream : IEventStream
+    EventStream : IEventStream option
     Supervisor : ActorRef
     Behaviour : (ActorContext<'a> -> Async<unit>)
 }

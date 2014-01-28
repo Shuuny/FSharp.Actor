@@ -17,12 +17,12 @@ module Supervisor =
                         match msg.Message with
                         | SupervisorMessage.Errored(error) -> 
                             let! (result : SystemMessage) = exceptionHandler { Error = error; Children = ctx.Children }
-                            msg.Sender <-- result
+                            [msg.Sender] <-- result
                             return! loop()
                     } 
                 loop()   
             )
-        } |> Actor.fromDefinition
+        } |> Actor<_>.Create
 
 
 
