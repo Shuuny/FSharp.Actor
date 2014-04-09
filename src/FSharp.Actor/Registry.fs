@@ -16,3 +16,9 @@ module Registry =
      
      let unregister (actor:IActor) =  
          actors := Trie.remove (computeKeysFromPath actor.Name) !actors
+
+[<AutoOpen>]
+module RegistryOperations = 
+    let resolve path = Registry.resolve path
+    let register (actor:IActor) = actor |> Registry.register
+    let inline (!!) path = resolve path

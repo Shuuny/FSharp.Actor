@@ -53,16 +53,14 @@
   <ItemGroup>
     <Compile Include="Trie.fs" />
     <Compile Include="Types.fs" />
-    <Compile Include="Exceptions.fs" />
     <Compile Include="Async.fs" />
     <Compile Include="Mailbox.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="EventStream.fs" />
-    <Compile Include="Registry.fs" />
-    <Compile Include="Pervasives.fs" />
     <Compile Include="Actor.Configuration.fs" />
     <Compile Include="Actor.fs" />
     <Compile Include="Supervisor.fs" />
+    <Compile Include="Registry.fs" />
     <None Include="packages.config" />
     <Compile Include="AssemblyInfo.fs" />
     <None Include="Script2.fsx" />

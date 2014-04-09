@@ -87,6 +87,7 @@ type ActorContext<'a> = {
     Logger : ILogger
     Children : ActorRef list
     Mailbox : IMailbox<Message<'a>>
+    Self : ActorRef
 }
 with 
     member x.Receive(?timeout) = 
