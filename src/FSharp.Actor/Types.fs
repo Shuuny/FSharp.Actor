@@ -100,6 +100,7 @@ type ActorConfiguration<'a> = {
     EventStream : IEventStream option
     Supervisor : ActorRef
     Behaviour : (ActorContext<'a> -> Async<unit>)
+    Mailbox : IMailbox<Message<'a>> option
 }
 
 type ErrorContext = {

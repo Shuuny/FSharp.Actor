@@ -31,7 +31,7 @@ module ActorOperations =
     let inline (-->) msg target = Seq.iter (fun t -> post t msg) target
                 
 type Actor<'a>(defn:ActorConfiguration<'a>) as self = 
-    let mailbox = new DefaultMailbox<Message<'a>>() :> IMailbox<_>
+    let mailbox = defaultArg defn.Mailbox (new DefaultMailbox<Message<'a>>() :> IMailbox<_>)
     let logger = Logger.create defn.Path
     let systemMailbox = new DefaultMailbox<SystemMessage>() :> IMailbox<_>
     let mutable cts = new CancellationTokenSource()

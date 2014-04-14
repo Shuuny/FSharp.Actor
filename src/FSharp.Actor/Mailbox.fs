@@ -94,3 +94,4 @@ type DefaultMailbox<'a>() =
         member this.Dispose() = 
             inbox <- null
             disposed <- true
+
