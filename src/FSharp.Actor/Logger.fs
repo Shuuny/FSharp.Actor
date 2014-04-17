@@ -14,7 +14,7 @@ module Logger =
     let NLog (name:string) = 
         let configureNlog() =
             let config = new LoggingConfiguration()
-            let layout = Layouts.Layout.op_Implicit @"${date:format=HH\:MM\:ss} ${logger}-${level} ${message}"
+            let layout = Layouts.Layout.op_Implicit @"${date:format=HH\:MM\:ss} ${logger}-${level} ${message} ${exception:format=tostring}"
             let consoleTarget = new ColoredConsoleTarget();
             consoleTarget.Layout <- layout
             config.AddTarget("console", consoleTarget);

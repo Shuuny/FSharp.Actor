@@ -14,7 +14,6 @@ module Trie =
         let rec values' acc = function
             | Node(v, m) -> m |> Map.toSeq |> Seq.map snd |> Seq.fold (values') (v :: acc)
         values' [] trie |> List.choose id |> List.rev
-            
 
     let rec tryFind keys trie = 
         match keys, trie with

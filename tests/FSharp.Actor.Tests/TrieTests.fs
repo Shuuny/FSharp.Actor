@@ -71,5 +71,4 @@ type ``Given a trie``() =
         let actual = 
             Trie.empty |> Trie.add ["a";"b"] "ab" |> Trie.remove ["a";"b"]
         let expected : Trie.trie<string, string> = Trie.empty
-        actual |> should equal expected  
-       
+        actual |> should equal expected        
