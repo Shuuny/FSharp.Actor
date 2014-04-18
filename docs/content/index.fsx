@@ -2,9 +2,10 @@
 // This block of code is omitted in the generated HTML documentation. Use 
 // it to define helpers that you do not want to show in the documentation.
 #I "../../bin"
+open System
 
 (**
-F# Project Scaffold
+F# Actor
 ===================
 
 Documentation
@@ -13,8 +14,8 @@ Documentation
   <div class="span1"></div>
   <div class="span6">
     <div class="well well-small" id="nuget">
-      The F# ProjectTemplate library can be <a href="https://nuget.org/packages/FSharp.ProjectTemplate">installed from NuGet</a>:
-      <pre>PM> Install-Package FSharp.ProjectTemplate</pre>
+      The F# Actor library can be <a href="https://nuget.org/packages/FSharp.Actor">installed from NuGet</a>:
+      <pre>PM> Install-Package FSharp.Actor</pre>
     </div>
   </div>
   <div class="span1"></div>
@@ -22,17 +23,37 @@ Documentation
 
 Example
 -------
-
-This example demonstrates using a function defined in this sample library.
-
+The example below is essentially the `Hello World` of actors.
+Here we create a discriminated union to represent the type of messages that we want the actor to process. 
+Next we create an actor called `/greeter` to handle the messages. Then finally we use `<--` to send the message
+so the actor can process it. 
 *)
-#r "FSharp.ProjectTemplate.dll"
-open FSharp.ProjectTemplate
+#r "FSharp.Actor.dll"
+open FSharp.Actor
 
-printfn "hello = %i" <| Library.hello 0
+let system = ActorSystem.Create("greeterSystem")
+
+type Say =
+    | Hello
+    | Name of string
+
+let greeter = 
+    actor {
+        path "/greeter"
+        messageHandler (fun actor ->
+            let rec loop() = async {
+                let! msg = actor.Receive()
+                match msg.Message with
+                | Hello ->  actor.Logger.Info("Hello", [||], None)
+                | Name name -> actor.Logger.Info("Hello, {0}", [|name|], None)
+                return! loop()
+            }
+            loop())
+    } |> system.SpawnActor
+
+greeter <-- Name("from F# Actor")
 
 (**
-Some more info
 
 Samples & documentation
 -----------------------
@@ -59,9 +80,9 @@ The library is available under Public Domain license, which allows modification 
 redistribution for both commercial and non-commercial purposes. For more information see the 
 [License file][license] in the GitHub repository. 
 
-  [content]: https://github.com/fsprojects/FSharp.ProjectScaffold/tree/master/docs/content
-  [gh]: https://github.com/fsprojects/FSharp.ProjectScaffold
-  [issues]: https://github.com/fsprojects/FSharp.ProjectScaffold/issues
-  [readme]: https://github.com/fsprojects/FSharp.ProjectScaffold/blob/master/README.md
-  [license]: https://github.com/fsprojects/FSharp.ProjectScaffold/blob/master/LICENSE.txt
+  [content]: https://github.com/colinbull/FSharp.Actor/tree/master/docs/content
+  [gh]: https://github.com/colinbull/FSharp.Actor
+  [issues]: https://github.com/colinbull/FSharp.Actor/issues
+  [readme]: https://github.com/colinbull/FSharp.Actor/blob/master/README.md
+  [license]: https://github.com/colinbull/FSharp.Actor/blob/master/LICENSE.txt
 *)

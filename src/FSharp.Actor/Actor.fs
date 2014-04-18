@@ -13,13 +13,17 @@ open FSharp.Actor
      
 [<AutoOpen>]
 module ActorOperations = 
+    
+    let internal getActorContext() = 
+        match CallContext.LogicalGetData("actor") with
+        | null -> None
+        | :? ActorRef as a -> Some a
+        | _ -> failwith "Unexpected type representing actorContext" 
 
     let sender() = 
-        let sender = CallContext.LogicalGetData("actor")
-        match sender with
-        | null -> Null
-        | :? IActor as actor -> ActorRef(actor)
-        | _ -> failwithf "Unknown sender ref %A" sender
+        match getActorContext() with
+        | None -> Null
+        | Some ref -> ref
  
     let post (target:ActorRef) (msg:'a) = 
         match target with
@@ -29,52 +33,8 @@ module ActorOperations =
 
     let inline (<-!) target msg = Seq.iter (fun t -> post t msg) target
     let inline (!->) msg target = Seq.iter (fun t -> post t msg) target
-    let inline (-->) msg target = post msg target
-    let inline (<--) msg target = post msg target
-
-[<AutoOpen>]
-module ActorConfiguration = 
-    
-    let internal emptyBehaviour ctx = 
-        let rec loop() =
-             async { return! loop() }
-        loop()
-
-    type ActorConfigurationBuilder internal() = 
-        member x.Zero() = { 
-            Path = ActorPath.ofString (Guid.NewGuid().ToString()); 
-            EventStream = None
-            SupervisorBehaviour = (fun x -> x.Sender <-- Shutdown);
-            Parent = Null;
-            Children = []; 
-            Behaviour = emptyBehaviour;
-            Mailbox = None  }
-        member x.Yield(()) = x.Zero()
-        [<CustomOperation("inherits", MaintainsVariableSpace = true)>]
-        member x.Inherits(ctx:ActorConfiguration<'a>, b:ActorConfiguration<_>) = b
-        [<CustomOperation("path", MaintainsVariableSpace = true)>]
-        member x.Path(ctx:ActorConfiguration<'a>, name) = 
-            {ctx with Path = ActorPath.ofString name }
-        [<CustomOperation("mailbox", MaintainsVariableSpace = true)>]
-        member x.Mailbox(ctx:ActorConfiguration<'a>, mailbox) = 
-            {ctx with Mailbox = mailbox }
-        [<CustomOperation("messageHandler", MaintainsVariableSpace = true)>]
-        member x.MsgHandler(ctx:ActorConfiguration<'a>, behaviour) = 
-            { ctx with Behaviour = behaviour }
-        [<CustomOperation("parent", MaintainsVariableSpace = true)>]
-        member x.SupervisedBy(ctx:ActorConfiguration<'a>, sup) = 
-            { ctx with Parent = sup }
-        [<CustomOperation("children", MaintainsVariableSpace = true)>]
-        member x.Children(ctx:ActorConfiguration<'a>, children) = 
-            { ctx with Children = children }
-        [<CustomOperation("supervisorBehaviour", MaintainsVariableSpace = true)>]
-        member x.SupervisorBehaviour(ctx:ActorConfiguration<'a>, supervisorBehaviour) = 
-            { ctx with SupervisorBehaviour = supervisorBehaviour }
-        [<CustomOperation("raiseEventsOn", MaintainsVariableSpace = true)>]
-        member x.RaiseEventsOn(ctx:ActorConfiguration<'a>, es) = 
-            { ctx with EventStream = Some es }
-
-    let actor = new ActorConfigurationBuilder()
+    let inline (-->) msg target = post target msg
+    let inline (<--) target msg  = post target msg 
                 
 type Actor<'a>(defn:ActorConfiguration<'a>) as self = 
     let mailbox = defaultArg defn.Mailbox (new DefaultMailbox<Message<'a>>() :> IMailbox<_>)
@@ -146,7 +106,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             | Restart -> return! restart false
             | RestartTree -> return! restart true
             | Errored(errContext) -> 
-                defn.SupervisorBehaviour(errContext) 
+                defn.SupervisorStrategy(errContext) 
                 return! systemMessageHandler()
             | Link(ref) -> 
                 ctx <- { ctx with Children = (ref :: ctx.Children) }
@@ -178,13 +138,14 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             messageHandlerCancel <- null
         messageHandlerCancel <- new CancellationTokenSource()
         Async.Start(async {
-                        CallContext.LogicalSetData("actor", self :> IActor)
+                        CallContext.LogicalSetData("actor", ctx.Self)
                         publishEvent(ActorEvents.ActorStarted(ctx.Self))
                         do! messageHandler()
                     }, messageHandlerCancel.Token)
 
     do 
         Async.Start(systemMessageHandler(), cts.Token)
+        ctx.Children |> List.iter ((-->) (SetParent(ctx.Self)))
         start()
    
     override x.ToString() = ActorPath.toString defn.Path
@@ -216,3 +177,47 @@ module Actor =
 
     let unlink (actor:ActorRef) = 
         actor <-- SetParent(Null);
+
+[<AutoOpen>]
+module ActorConfiguration = 
+    
+    let internal emptyBehaviour ctx = 
+        let rec loop() =
+             async { return! loop() }
+        loop()
+
+    type ActorConfigurationBuilder internal() = 
+        member x.Zero() = { 
+            Path = ActorPath.ofString (Guid.NewGuid().ToString()); 
+            EventStream = None
+            SupervisorStrategy = (fun x -> x.Sender <-- Shutdown);
+            Parent = Null;
+            Children = []; 
+            Behaviour = emptyBehaviour;
+            Mailbox = None  }
+        member x.Yield(()) = x.Zero()
+        [<CustomOperation("inherits", MaintainsVariableSpace = true)>]
+        member x.Inherits(ctx:ActorConfiguration<'a>, b:ActorConfiguration<_>) = b
+        [<CustomOperation("path", MaintainsVariableSpace = true)>]
+        member x.Path(ctx:ActorConfiguration<'a>, name) = 
+            {ctx with Path = ActorPath.ofString name }
+        [<CustomOperation("mailbox", MaintainsVariableSpace = true)>]
+        member x.Mailbox(ctx:ActorConfiguration<'a>, mailbox) = 
+            {ctx with Mailbox = mailbox }
+        [<CustomOperation("messageHandler", MaintainsVariableSpace = true)>]
+        member x.MsgHandler(ctx:ActorConfiguration<'a>, behaviour) = 
+            { ctx with Behaviour = behaviour }
+        [<CustomOperation("parent", MaintainsVariableSpace = true)>]
+        member x.SupervisedBy(ctx:ActorConfiguration<'a>, sup) = 
+            { ctx with Parent = sup }
+        [<CustomOperation("children", MaintainsVariableSpace = true)>]
+        member x.Children(ctx:ActorConfiguration<'a>, children) =
+            { ctx with Children = children }
+        [<CustomOperation("supervisorStrategy", MaintainsVariableSpace = true)>]
+        member x.SupervisorStrategy(ctx:ActorConfiguration<'a>, supervisorStrategy) = 
+            { ctx with SupervisorStrategy = supervisorStrategy }
+        [<CustomOperation("raiseEventsOn", MaintainsVariableSpace = true)>]
+        member x.RaiseEventsOn(ctx:ActorConfiguration<'a>, es) = 
+            { ctx with EventStream = Some es }
+
+    let actor = new ActorConfigurationBuilder()

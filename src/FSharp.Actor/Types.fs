@@ -1,6 +1,7 @@
 ﻿namespace FSharp.Actor
 
 open System
+open System.Net
 open System.Threading
 open System.Collections.Generic
 open System.Runtime.Remoting.Messaging
@@ -11,8 +12,13 @@ open FSharp.Actor
 
 [<AutoOpen>]
 module Types = 
+    
 
     type ActorPath = ActorPath of Uri
+        with
+            override x.ToString() = 
+                let (ActorPath path) = x
+                path.ToString()
     
     type IMailbox<'a> = 
         inherit IDisposable
@@ -91,7 +97,7 @@ module Types =
         | SetParent of ActorRef
         | Errored of ErrorContext
 
-    type ActorContext<'a> = {
+    type ActorCell<'a> = {
         Logger : ILogger
         Children : ActorRef list
         Mailbox : IMailbox<Message<'a>>
@@ -108,8 +114,8 @@ module Types =
         EventStream : IEventStream option
         Parent : ActorRef
         Children : ActorRef list
-        SupervisorBehaviour : (ErrorContext -> unit)
-        Behaviour : (ActorContext<'a> -> Async<unit>)
+        SupervisorStrategy : (ErrorContext -> unit)
+        Behaviour : (ActorCell<'a> -> Async<unit>)
         Mailbox : IMailbox<Message<'a>> option
     }
     

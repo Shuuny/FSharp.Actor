@@ -2,44 +2,93 @@
 
 open System
 open System.Net
+open System.Net.NetworkInformation
 open System.Net.Sockets
 
 module ActorPath = 
     
-    let deadLetter : ActorPath = ActorPath(new Uri("/system/deadletter", UriKind.Relative))
+    type Locality = 
+        | Local
+        | Remote
+        | Unknown
 
-    let name (ActorPath path) = path.PathAndQuery
+    let inline private hostName() = Environment.MachineName
+
+    let private ipAddress family =
+        if NetworkInterface.GetIsNetworkAvailable()
+        then 
+            let host = Dns.GetHostEntry(hostName())
+            host.AddressList
+            |> Seq.tryFind (fun add -> add.AddressFamily = family)
+        else None
+
+    let deadLetter : ActorPath = ActorPath(new Uri("/deadletter", UriKind.Relative))
+
+    let locality (ActorPath path)= 
+        if path.IsAbsoluteUri
+        then
+            match path.HostNameType with
+            | UriHostNameType.Dns when hostName() = path.Host -> Local
+            | UriHostNameType.IPv4 when path.Host = ((ipAddress AddressFamily.InterNetwork).ToString()) -> Local
+            | UriHostNameType.IPv6 when path.Host = ((ipAddress AddressFamily.InterNetworkV6).ToString()) -> Local
+            | _ -> Remote
+        else Unknown
+
+    let ofString (str:string) =
+        match Uri.TryCreate("/" + str.TrimStart('/'), UriKind.RelativeOrAbsolute) with
+        | true, uri -> 
+            if uri.IsAbsoluteUri
+            then ActorPath uri
+            else ActorPath (new Uri(new Uri(sprintf "actor://%s" (hostName())),uri))
+        | false, _ -> failwithf "%s is not a valid actor path" str
+
+    let name (ActorPath path) = path.LocalPath
+
+    let internal setSystem system (ActorPath path) =
+        if path.IsAbsoluteUri
+        then
+            (new Uri(path.Scheme + "://"
+                        + system + "@"
+                        + path.Host + (if path.Port <> -1 then (":" + string(path.Port)) else "") + "/"
+                        + path.LocalPath)) |> ActorPath
+        else failwithf "Cannot set the system on a relative path"
                
-    let transport (ActorPath path) = path.Scheme
+    let transport (ActorPath path) = 
+        if path.IsAbsoluteUri 
+        then Some path.Scheme
+        else None
+    
+    let system (ActorPath path) = 
+        if path.IsAbsoluteUri 
+            && not(String.IsNullOrEmpty(path.UserInfo)) 
+            && not(String.IsNullOrWhiteSpace(path.UserInfo))
+        then Some path.UserInfo
+        else None
 
     let toString (ActorPath path) = path.AbsoluteUri
 
     let components (ActorPath path) = path.Segments |> Array.toList
 
     let toIPEndpoint (ActorPath path) = 
-        match Net.IPAddress.TryParse(path.Host) with
-        | true, ip -> new IPEndPoint(ip, path.Port)
-        | _ -> 
+        match path.HostNameType with
+        | UriHostNameType.IPv4-> new IPEndPoint(IPAddress.Parse(path.Host), path.Port)
+        | UriHostNameType.Dns -> 
             match Dns.GetHostEntry(path.Host) with
-            | null -> failwithf "Invalid Address %A expected address of form {IPAddress/hostname}:{Port} eg 127.0.0.1:8080" path
+            | null -> failwithf "Unable to resolve host for path %A" path
             | host -> 
                 match host.AddressList |> Seq.tryFind (fun a -> a.AddressFamily = AddressFamily.InterNetwork) with
                 | Some(ip) -> new IPEndPoint(ip, path.Port)
                 | None -> failwithf "Unable to find ipV4 address for %s" path.Host
-
-    let ofString (str:string) =
-        match Uri.TryCreate(str, UriKind.RelativeOrAbsolute) with
-        | true, uri -> ActorPath uri
-        | false, _ -> failwithf "%s is not a valid actor path" str
+        | a -> failwithf "A host name type of %A is not currently supported" a
     
     let ofRef = function
         | ActorRef(a) -> a.Path
-        | Null -> deadLetter 
+        | Null -> deadLetter
 
     let rebase (ActorPath basePath) (ActorPath path) = 
         let relativePart =
             if path.IsAbsoluteUri
-            then path.PathAndQuery
+            then path.LocalPath
             else path.ToString()
         if basePath.IsAbsoluteUri
         then
@@ -47,4 +96,4 @@ module ActorPath =
             | true, uri -> ActorPath uri
             | false, _ -> failwithf "could not rebase actor path"
         else 
-            ActorPath(new Uri(basePath.ToString().TrimEnd('/') + relativePart, UriKind.Relative))
+            ofString (basePath.ToString().TrimEnd('/') + "/" + (relativePart.TrimStart('/')))
