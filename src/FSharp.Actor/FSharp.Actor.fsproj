@@ -61,7 +61,6 @@
     <Compile Include="Actor.fs" />
     <Compile Include="ActorRegistry.fs" />
     <Compile Include="ActorSystem.fs" />
-    <None Include="packages.config" />
     <Compile Include="AssemblyInfo.fs" />
     <None Include="FSharp.Actor.fsx" />
     <None Include="Scratch.fsx" />
@@ -71,10 +70,6 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
-    <Reference Include="NLog">
-      <HintPath>..\..\packages\NLog.2.1.0\lib\net45\NLog.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
