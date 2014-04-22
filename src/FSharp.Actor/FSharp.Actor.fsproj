@@ -53,11 +53,11 @@
   <ItemGroup>
     <Compile Include="Trie.fs" />
     <Compile Include="Async.fs" />
-    <Compile Include="Types.fs" />
     <Compile Include="Mailbox.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="EventStream.fs" />
     <Compile Include="ActorPath.fs" />
+    <Compile Include="ActorRef.fs" />
     <Compile Include="Actor.fs" />
     <Compile Include="ActorRegistry.fs" />
     <Compile Include="ActorSystem.fs" />

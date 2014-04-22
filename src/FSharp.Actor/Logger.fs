@@ -121,7 +121,7 @@ module Log =
         { trace_id      = 0UL
         ; req_id        = 0UL
         ; req_parent_id = None }
-      static member Create(trace_id, span_parent_id) =
+      static member Create(?trace_id, ?span_parent_id) =
         let new_id = LoggingGlobals.randomLong()
         { trace_id      = defaultArg trace_id new_id
         ; req_id        = new_id
@@ -154,7 +154,7 @@ module Log =
     
     module Loggers =
     /// A ILogger to use for combining a number of other Loggers
-        type CombiningILogger(other_Loggers : ILogger list) =
+        type CombiningLogger(other_Loggers : ILogger list) =
           interface ILogger with
             member x.Log level f_line =
               other_Loggers |> List.iter (fun l -> l.Log level f_line)
@@ -202,41 +202,59 @@ module Log =
           let log line = System.Diagnostics.Debug.WriteLine(formatter line)
           interface ILogger with
             member x.Log level f_line = if level >= min_level then log (f_line ())
-        
-        let sane_defaults_for level =
-          if level >= Warn then
-            ConsoleWindowLogger(level) :> ILogger
-          else
-            CombiningILogger(
-              [ ConsoleWindowLogger(level)
-                OutputWindowLogger(level) ]) :> ILogger
-        
-    let internal mk_line path trace ex message =
+             
+    let internal mk_line level path trace ex message =
       { message       = message
-      ; level         = Verbose
+      ; level         = level
       ; path          = path
       ; ``exception`` = ex
       ; trace         = trace
       ; ts_utc_ticks  = DateTime.UtcNow.Ticks }
     
-    let verbose (logger : ILogger) path trace message =
-      logger.Log Verbose (fun _ -> mk_line path trace None message)
+    let write (logger : ILogger) level path trace exn message =
+      logger.Log level (fun _ -> mk_line level path trace exn message)
     
-    let verbosef logger path trace f_format =
-      f_format (Printf.kprintf (verbose logger path trace))
+    let writef logger level path trace exn f_format =
+      f_format (Printf.kprintf (write logger level path trace exn)) |> ignore
     
-    let verbosee (logger : ILogger) path trace ex message =
-      logger.Log Verbose (fun _ -> mk_line path trace (Some ex) message)
-    
-    let intern (logger : ILogger) path =
-      verbose logger path (TraceHeader.Empty)
-    
-    let interne (logger : ILogger) path =
-      verbosee logger path (TraceHeader.Empty)
-    
-    let internf (logger : ILogger) path f_format =
-      f_format (Printf.kprintf (verbose logger path (TraceHeader.Empty)))
+    open Loggers
 
-module Logger = 
+    type Logger(path:string, logger : ILogger) = 
     
-    let private logger : Log.ILogger = Log.Loggers.
+         member x.Write(level, message, ?trace, ?exn) = 
+             write logger level path (defaultArg trace TraceHeader.Empty) exn message
+
+         member x.WriteFormat(level, format, ?trace, ?exn) = 
+             writef logger level path (defaultArg trace TraceHeader.Empty) exn format
+    
+         member x.Info(message, ?trace, ?exn) =
+             x.Write(Info, message, ?trace = trace, ?exn = exn)
+
+         member x.InfoFormat(message, ?trace, ?exn) =
+             x.WriteFormat(Info, message, ?trace = trace, ?exn = exn)
+    
+         member x.Debug(message, ?trace, ?exn) =
+             x.Write(Debug, message, ?trace = trace, ?exn = exn)
+
+         member x.DebugFormat(message, ?trace, ?exn) =
+             x.WriteFormat(Debug, message, ?trace = trace, ?exn = exn)
+    
+         member x.Error(message, ?trace, ?exn) =
+             x.Write(Error, message, ?trace = trace, ?exn = exn)
+
+         member x.ErrorFormat(message, ?trace, ?exn) =
+             x.WriteFormat(Error, message, ?trace = trace, ?exn = exn)
+    
+         member x.Fatal(message, ?trace, ?exn) =
+             x.Write(Fatal, message, ?trace = trace, ?exn = exn)
+
+         member x.FatalFormat(message, ?trace, ?exn) =
+             x.WriteFormat(Fatal, message, ?trace = trace, ?exn = exn)
+
+    let defaultFor level =
+       if level >= Warn then
+         ConsoleWindowLogger(level) :> ILogger
+       else
+         CombiningLogger(
+           [ ConsoleWindowLogger(level)
+             OutputWindowLogger(level) ]) :> ILogger

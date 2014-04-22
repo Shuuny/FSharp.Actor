@@ -4,13 +4,13 @@ open System
 open System.Threading
 
 type IActorRegistry = 
-    abstract Resolve : ActorPath -> ActorRef list
-    abstract Register : ActorRef -> unit
-    abstract UnRegister : ActorRef -> unit 
+    abstract Resolve : actorPath -> actorRef list
+    abstract Register : actorRef -> unit
+    abstract UnRegister : actorRef -> unit 
 
 type LocalActorRegistry() =
     let syncObj = new ReaderWriterLockSlim()
-    let actors : Trie.trie<string, ActorRef> ref = ref Trie.empty
+    let actors : Trie.trie<string, actorRef> ref = ref Trie.empty
     interface IActorRegistry with
         member x.Resolve(path) = 
             try
@@ -22,13 +22,13 @@ type LocalActorRegistry() =
         member x.Register(actor) =
             try
                 syncObj.EnterWriteLock()
-                actors := Trie.add (ActorPath.components (ActorPath.ofRef actor)) actor !actors
+                actors := Trie.add (ActorPath.components (ActorRef.path actor)) actor !actors
             finally
                 syncObj.ExitWriteLock()
 
-        member x.UnRegister (actor:ActorRef) =
+        member x.UnRegister actor =
             try
                 syncObj.EnterWriteLock()
-                actors := Trie.remove (ActorPath.components (ActorPath.ofRef actor)) !actors
+                actors := Trie.remove (ActorPath.components (ActorRef.path actor)) !actors
             finally
                 syncObj.ExitWriteLock()

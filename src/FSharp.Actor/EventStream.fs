@@ -7,10 +7,24 @@ open System.Collections.Generic
 open FSharp.Actor
 #endif
 
-type DefaultEventStream() = 
-    let logger = Logger.create (typeof<DefaultEventStream>.FullName)
+type Event = {
+    Payload : obj
+    PayloadType : string
+}
+
+type IEventStream = 
+    inherit IDisposable
+    abstract Publish : 'a -> unit
+    abstract Publish : string * 'a -> unit
+    abstract Subscribe<'a> : ('a -> unit) -> unit
+    abstract Subscribe : string * (Event -> unit) -> unit
+    abstract Unsubscribe<'a> : unit -> unit
+    abstract Unsubscribe : string -> unit
+
+type DefaultEventStream(logger:Log.ILogger) = 
     let cts = new CancellationTokenSource()
     let counter = ref 0L
+    let logger = new Log.Logger("eventStream", logger)   
     let mutable mailbox = new DefaultMailbox<Event>() :> IMailbox<_>
     let mutable subscriptions = new Dictionary<string, (Event -> unit)>()
     let rec worker() =
@@ -18,7 +32,9 @@ type DefaultEventStream() =
             let! event = mailbox.Receive(Timeout.Infinite)
             match subscriptions.TryGetValue(event.PayloadType) with
             | true, f -> 
-                try f(event) with e -> logger.Error("Error occured handling event {0}", [|event|], Some e)
+                try 
+                    f(event) 
+                with e -> logger.ErrorFormat((fun fmt -> fmt "Error occured handling event %A" event), exn = e)
             | false, _ -> ()
             return! worker()
         }

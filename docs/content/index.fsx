@@ -44,8 +44,8 @@ let greeter =
             let rec loop() = async {
                 let! msg = actor.Receive()
                 match msg.Message with
-                | Hello ->  actor.Logger.Info("Hello", [||], None)
-                | Name name -> actor.Logger.Info("Hello, {0}", [|name|], None)
+                | Hello ->  actor.Logger.Debug("Hello")
+                | Name name -> actor.Logger.DebugFormat(fun p -> p "Hello, %s" name, Log.TraceHeader.Create(123UL, 10UL))
                 return! loop()
             }
             loop())

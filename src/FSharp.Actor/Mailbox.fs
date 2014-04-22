@@ -8,6 +8,12 @@ open System.Collections.Concurrent
 open FSharp.Actor
 #endif
 
+type IMailbox<'a> = 
+    inherit IDisposable
+    abstract Post : 'a -> unit
+    abstract Scan : int * ('a -> Async<'b> option) -> Async<'b>
+    abstract Receive : int -> Async<'a>
+
 type DefaultMailbox<'a>() =
     let mutable disposed = false
     let mutable inbox : ResizeArray<_> = new ResizeArray<_>()

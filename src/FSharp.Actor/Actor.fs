@@ -10,36 +10,74 @@ open FSharp.Actor
 #if INTERACTIVE
 open FSharp.Actor
 #endif
-     
-[<AutoOpen>]
-module ActorOperations = 
-    
-    let internal getActorContext() = 
-        match CallContext.LogicalGetData("actor") with
-        | null -> None
-        | :? ActorRef as a -> Some a
-        | _ -> failwith "Unexpected type representing actorContext" 
 
-    let sender() = 
-        match getActorContext() with
-        | None -> Null
-        | Some ref -> ref
- 
-    let post (target:ActorRef) (msg:'a) = 
-        match target with
-        | ActorRef(actor) -> 
-            actor.Post(msg,sender())
-        | Null -> ()
 
-    let inline (<-!) target msg = Seq.iter (fun t -> post t msg) target
-    let inline (!->) msg target = Seq.iter (fun t -> post t msg) target
-    let inline (-->) msg target = post target msg
-    let inline (<--) target msg  = post target msg 
-                
+
+type Message<'a> = {
+    Sender : actorRef
+    Target : actorRef
+    Message : 'a
+}
+
+type ActorEvents = 
+    | ActorStarted of actorRef
+    | ActorShutdown of actorRef
+    | ActorRestart of actorRef
+    | ActorErrored of actorRef * exn
+    | ActorAddedChild of actorRef * actorRef
+    | ActorRemovedChild of actorRef * actorRef
+
+type ActorStatus = 
+    | Running 
+    | Errored of exn
+    | Stopped
+
+type ErrorContext = {
+    Error : exn
+    Sender : actorRef
+    Children : actorRef list
+} 
+
+type SystemMessage =
+    | Shutdown 
+    | RestartTree
+    | Restart
+    | Link of actorRef
+    | Unlink of actorRef
+    | SetParent of actorRef
+    | Errored of ErrorContext
+
+type ActorLogger(path:actorPath, logger : Log.ILogger) =
+    inherit Log.Logger(ActorPath.toString path, logger)
+
+
+type ActorCell<'a> = {
+    Logger : ActorLogger
+    Children : actorRef list
+    Mailbox : IMailbox<Message<'a>>
+    Self : actorRef
+}
+with 
+    member x.Receive(?timeout) = 
+        async { return! x.Mailbox.Receive(defaultArg timeout Timeout.Infinite) }
+    member x.Scan(f, ?timeout) = 
+        async { return! x.Mailbox.Scan(defaultArg timeout Timeout.Infinite, f) }
+
+type ActorConfiguration<'a> = {
+    Path : actorPath
+    EventStream : IEventStream option
+    Parent : actorRef
+    Children : actorRef list
+    SupervisorStrategy : (ErrorContext -> unit)
+    Behaviour : (ActorCell<'a> -> Async<unit>)
+    Mailbox : IMailbox<Message<'a>> option
+    Logger : Log.ILogger
+}
+                    
 type Actor<'a>(defn:ActorConfiguration<'a>) as self = 
     let mailbox = defaultArg defn.Mailbox (new DefaultMailbox<Message<'a>>() :> IMailbox<_>)
-    let logger = Logger.create (defn.Path.ToString())
     let systemMailbox = new DefaultMailbox<SystemMessage>() :> IMailbox<_>
+    let logger = new ActorLogger(defn.Path, defn.Logger)
     let mutable cts = new CancellationTokenSource()
     let mutable messageHandlerCancel = new CancellationTokenSource()
     let mutable defn = defn
@@ -57,8 +95,8 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             messageHandlerCancel.Cancel()
             publishEvent(ActorEvents.ActorShutdown(ctx.Self))
             match status with
-            | ActorStatus.Errored(err) -> logger.Debug("shutdown due to Error: {1}",[|err|], None)
-            | _ -> logger.Debug("{0} shutdown",[|self|], None)
+            | ActorStatus.Errored(err) -> logger.Debug("shutdown", exn = err)
+            | _ -> logger.Debug("shutdown")
             setStatus ActorStatus.Stopped
             return ()
         }
@@ -92,8 +130,8 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             then ctx.Children <-! RestartTree
 
             match status with
-            | ActorStatus.Errored(err) -> logger.Debug("restarted due to Error: {1}",[|err|], None)
-            | _ -> logger.Debug("restarted",[||], None)
+            | ActorStatus.Errored(err) -> logger.Debug("restarted", exn = err)
+            | _ -> logger.Debug("restarted")
             do start()
             return! systemMessageHandler()
         }
@@ -172,19 +210,15 @@ module Actor =
     let create (config:ActorConfiguration<'a>) = 
         ActorRef(new Actor<_>(config) :> IActor)
 
-    let link (actor:ActorRef) (supervisor:ActorRef) = 
+    let link (actor:actorRef) (supervisor:actorRef) = 
         actor <-- SetParent(supervisor)
 
-    let unlink (actor:ActorRef) = 
+    let unlink (actor:actorRef) = 
         actor <-- SetParent(Null);
 
 [<AutoOpen>]
 module ActorConfiguration = 
     
-    let internal emptyBehaviour ctx = 
-        let rec loop() =
-             async { return! loop() }
-        loop()
 
     type ActorConfigurationBuilder internal() = 
         member x.Zero() = { 
@@ -193,7 +227,12 @@ module ActorConfiguration =
             SupervisorStrategy = (fun x -> x.Sender <-- Shutdown);
             Parent = Null;
             Children = []; 
-            Behaviour = emptyBehaviour;
+            Behaviour = (fun ctx -> 
+                 let rec loop() =
+                      async { return! loop() }
+                 loop()
+            )
+            Logger = Log.defaultFor Log.Debug
             Mailbox = None  }
         member x.Yield(()) = x.Zero()
         [<CustomOperation("inherits", MaintainsVariableSpace = true)>]
@@ -219,5 +258,8 @@ module ActorConfiguration =
         [<CustomOperation("raiseEventsOn", MaintainsVariableSpace = true)>]
         member x.RaiseEventsOn(ctx:ActorConfiguration<'a>, es) = 
             { ctx with EventStream = Some es }
+        [<CustomOperation("Logger", MaintainsVariableSpace = true)>]
+        member x.Logger(ctx:ActorConfiguration<'a>, logger) = 
+            { ctx with Logger = logger }
 
     let actor = new ActorConfigurationBuilder()

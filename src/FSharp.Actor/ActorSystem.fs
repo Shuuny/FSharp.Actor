@@ -5,10 +5,12 @@ open System.Collections.Concurrent
 open FSharp.Actor
 
 
-type ActorSystem internal(?name, ?registry, ?eventStream, ?onError) = 
-
+type ActorSystem internal(?name, ?registry, ?eventStream, ?onError, ?logger) = 
+   
     let name = defaultArg name (Guid.NewGuid().ToString())
-    let eventStream =  defaultArg eventStream (new DefaultEventStream() :> IEventStream)
+    let log = defaultArg logger (Log.defaultFor Log.Debug)
+    let logger = new Log.Logger(name, log)
+    let eventStream =  defaultArg eventStream (new DefaultEventStream(log) :> IEventStream)
     let registry = defaultArg registry (new LocalActorRegistry() :> IActorRegistry)
     let onError = defaultArg onError (fun err -> err.Sender <-- Shutdown)
 
@@ -27,7 +29,7 @@ type ActorSystem internal(?name, ?registry, ?eventStream, ?onError) =
        actor <-- SetParent(systemSupervisor)
        actor
 
-    member x.Resolve(path:ActorPath) = registry.Resolve path
+    member x.Resolve(path) = registry.Resolve path
     
     static member Create(?name, ?registry, ?eventStream, ?onError) = 
         let system = ActorSystem(?name = name, ?registry = registry, ?eventStream = eventStream, ?onError = onError)

@@ -5,6 +5,12 @@ open System.Net
 open System.Net.NetworkInformation
 open System.Net.Sockets
 
+type actorPath = ActorPath of Uri
+    with
+        override x.ToString() = 
+            let (ActorPath path) = x
+            path.ToString()
+
 module ActorPath = 
     
     type Locality = 
@@ -22,7 +28,7 @@ module ActorPath =
             |> Seq.tryFind (fun add -> add.AddressFamily = family)
         else None
 
-    let deadLetter : ActorPath = ActorPath(new Uri("/deadletter", UriKind.Relative))
+    let deadLetter : actorPath = ActorPath(new Uri("/deadletter", UriKind.Relative))
 
     let locality (ActorPath path)= 
         if path.IsAbsoluteUri
@@ -50,7 +56,7 @@ module ActorPath =
             (new Uri(path.Scheme + "://"
                         + system + "@"
                         + path.Host + (if path.Port <> -1 then (":" + string(path.Port)) else "") + "/"
-                        + path.LocalPath)) |> ActorPath
+                        + path.LocalPath.TrimStart('/'))) |> ActorPath
         else failwithf "Cannot set the system on a relative path"
                
     let transport (ActorPath path) = 
@@ -81,10 +87,6 @@ module ActorPath =
                 | None -> failwithf "Unable to find ipV4 address for %s" path.Host
         | a -> failwithf "A host name type of %A is not currently supported" a
     
-    let ofRef = function
-        | ActorRef(a) -> a.Path
-        | Null -> deadLetter
-
     let rebase (ActorPath basePath) (ActorPath path) = 
         let relativePart =
             if path.IsAbsoluteUri
