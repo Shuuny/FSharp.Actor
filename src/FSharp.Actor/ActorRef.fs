@@ -42,15 +42,6 @@ module ActorRef =
             actor.Post(msg,sender())
         | Null -> ()
 
-
-    let inline (<-!) target msg = Seq.iter (fun t -> post t msg) target
-    let inline (!->) msg target = Seq.iter (fun t -> post t msg) target
-    let inline (-->) msg target = post target msg
-    let inline (<--) target msg  = post target msg 
-
-
-
-
-
-
-
+type actorRef with
+    static member (-->) (msg,target) = post target msg
+    static member (<--) (target,msg)  = post target msg 

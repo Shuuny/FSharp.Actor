@@ -71,9 +71,26 @@ module ActorPath =
         then Some path.UserInfo
         else None
 
+    let host (ActorPath path) = 
+        if path.IsAbsoluteUri 
+            && not(String.IsNullOrEmpty(path.Host)) 
+            && not(String.IsNullOrWhiteSpace(path.Host))
+        then Some path.Host
+        else None
+
     let toString (ActorPath path) = path.AbsoluteUri
 
-    let components (ActorPath path) = path.Segments |> Array.toList
+    let components (ActorPath(path) as p) = 
+        match system p, host p with
+        | Some(s), Some(h) -> h :: s :: (path.Segments |> Array.toList)
+        | Some(s), None -> "*" :: s :: (path.Segments |> Array.toList)
+        | None, Some(h) -> h :: "*" ::  (path.Segments |> Array.toList)
+        | None, None -> "*" :: "*" :: (path.Segments |> Array.toList)
+        |> List.map (fun x ->
+            match x with
+            | "*" -> Trie.Wildcard
+            | a -> Trie.Key(a)
+        )
 
     let toIPEndpoint (ActorPath path) = 
         match path.HostNameType with

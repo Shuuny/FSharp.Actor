@@ -127,7 +127,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             do messageHandlerCancel.Cancel()
 
             if includeChildren
-            then ctx.Children <-! RestartTree
+            then Seq.iter (fun t -> post t Restart) ctx.Children
 
             match status with
             | ActorStatus.Errored(err) -> logger.Debug("restarted", exn = err)

@@ -35,6 +35,7 @@ let system = ActorSystem.Create("greeterSystem")
 
 type Say =
     | Hello
+    | HelloWorld
     | Name of string
 
 let greeter = 
@@ -45,7 +46,8 @@ let greeter =
                 let! msg = actor.Receive()
                 match msg.Message with
                 | Hello ->  actor.Logger.Debug("Hello")
-                | Name name -> actor.Logger.DebugFormat(fun p -> p "Hello, %s" name, Log.TraceHeader.Create(123UL, 10UL))
+                | HelloWorld -> actor.Logger.Debug("Hello World")
+                | Name name -> actor.Logger.DebugFormat(fun p -> p "Hello, %s" name)
                 return! loop()
             }
             loop())

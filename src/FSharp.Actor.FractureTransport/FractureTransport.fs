@@ -11,14 +11,14 @@ open Fracture
 open Fracture.Common
 
 type FractureMessage = {
-    Sender : ActorPath
-    Target : ActorPath
+    Sender : actorPath
+    Target : actorPath
     Body : obj
 }
 
-type FractureTransport(listenPort:int) = 
+type FractureTransport(listenPort:int, ?logger) = 
     let serialiser = new FsPickler()
-    let log = Logger.create "fracture-transport"
+    let log = new Log.Logger("fracture-transport",(defaultArg logger (Log.defaultFor Log.Debug))) 
     let basePath = 
         ActorPath.ofString (sprintf "actor.fracture://%s:%d" (Net.IPAddress.ToString()) listenPort)
 

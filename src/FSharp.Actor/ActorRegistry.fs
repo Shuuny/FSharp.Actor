@@ -10,12 +10,12 @@ type IActorRegistry =
 
 type LocalActorRegistry() =
     let syncObj = new ReaderWriterLockSlim()
-    let actors : Trie.trie<string, actorRef> ref = ref Trie.empty
+    let actors : Trie.trie<actorRef> ref = ref Trie.empty
     interface IActorRegistry with
         member x.Resolve(path) = 
             try
                 syncObj.EnterReadLock()
-                Trie.subtrie (ActorPath.components path) !actors |> Trie.values
+                Trie.resolve (ActorPath.components path) !actors
             finally
                 syncObj.ExitReadLock()
 

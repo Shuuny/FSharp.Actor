@@ -61,6 +61,7 @@
     <Compile Include="Actor.fs" />
     <Compile Include="ActorRegistry.fs" />
     <Compile Include="ActorSystem.fs" />
+    <Compile Include="ActorSelection.fs" />
     <Compile Include="AssemblyInfo.fs" />
     <None Include="FSharp.Actor.fsx" />
     <None Include="Scratch.fsx" />

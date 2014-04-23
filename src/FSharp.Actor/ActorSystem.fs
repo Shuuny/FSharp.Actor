@@ -23,13 +23,19 @@ type ActorSystem internal(?name, ?registry, ?eventStream, ?onError, ?logger) =
         } |> Actor.create
     
     member internal x.Name with get() = name
+    member x.EventStream with get() = eventStream
+
+    member x.ReportEvents() =
+        eventStream.Subscribe(fun (evnt:ActorEvents) -> logger.DebugFormat(fun fmt -> fmt "Event: %A" evnt))
     
     member x.SpawnActor(actor:ActorConfiguration<_>) =
        let actor = Actor.create { actor with Path = ActorPath.setSystem name actor.Path; EventStream = Some eventStream }
+       registry.Register actor
        actor <-- SetParent(systemSupervisor)
        actor
 
-    member x.Resolve(path) = registry.Resolve path
+    member x.Resolve(path) =
+        registry.Resolve (ActorPath.setSystem name path)
     
     static member Create(?name, ?registry, ?eventStream, ?onError) = 
         let system = ActorSystem(?name = name, ?registry = registry, ?eventStream = eventStream, ?onError = onError)
