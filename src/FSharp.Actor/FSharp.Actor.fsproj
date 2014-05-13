@@ -53,6 +53,7 @@
   <ItemGroup>
     <Compile Include="Trie.fs" />
     <Compile Include="Async.fs" />
+    <Compile Include="Net.fs" />
     <Compile Include="Mailbox.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="EventStream.fs" />
@@ -62,6 +63,7 @@
     <Compile Include="ActorRegistry.fs" />
     <Compile Include="ActorSystem.fs" />
     <Compile Include="ActorSelection.fs" />
+    <Compile Include="Remoting.fs" />
     <Compile Include="AssemblyInfo.fs" />
     <None Include="FSharp.Actor.fsx" />
     <None Include="Scratch.fsx" />
@@ -69,6 +71,9 @@
   <ItemGroup>
     <Reference Include="FSharp.Core, Version=$(TargetFSharpCoreVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
       <Private>True</Private>
+    </Reference>
+    <Reference Include="FsPickler">
+      <HintPath>C:\Users\Colin\SkyDrive\Documents\TcpExperiments\packages\FsPickler.0.8.6.2\lib\net45\FsPickler.dll</HintPath>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="System" />

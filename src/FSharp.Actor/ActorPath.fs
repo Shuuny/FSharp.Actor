@@ -92,15 +92,15 @@ module ActorPath =
             | a -> Trie.Key(a)
         )
 
-    let toIPEndpoint (ActorPath path) = 
+    let toNetAddress (ActorPath path) = 
         match path.HostNameType with
-        | UriHostNameType.IPv4-> new IPEndPoint(IPAddress.Parse(path.Host), path.Port)
+        | UriHostNameType.IPv4-> NetAddress <| new IPEndPoint(IPAddress.Parse(path.Host), path.Port)
         | UriHostNameType.Dns -> 
             match Dns.GetHostEntry(path.Host) with
             | null -> failwithf "Unable to resolve host for path %A" path
             | host -> 
                 match host.AddressList |> Seq.tryFind (fun a -> a.AddressFamily = AddressFamily.InterNetwork) with
-                | Some(ip) -> new IPEndPoint(ip, path.Port)
+                | Some(ip) -> NetAddress <| new IPEndPoint(ip, path.Port)
                 | None -> failwithf "Unable to find ipV4 address for %s" path.Host
         | a -> failwithf "A host name type of %A is not currently supported" a
     

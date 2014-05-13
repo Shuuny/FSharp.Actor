@@ -2,12 +2,16 @@
 
 open FSharp.Actor
 
-type actorSelection = ActorSelection of actorRef list
+type actorSelection = 
+    | ActorSelection of actorRef list
+    with
+       member x.Post(msg) =
+            let (ActorSelection(target)) = x 
+            Seq.iter (fun t -> post t msg) target
 
 module ActorSelection =
-
-    let select (str:string) =
-        let path = ActorPath.ofString str
+    
+    let ofPath (path:actorPath) =
         match ActorPath.system path with
         | Some(sys) ->
             match ActorSystem.TryGetSystem(sys) with
@@ -19,13 +23,13 @@ module ActorSelection =
             |> Seq.toList
         |> ActorSelection
 
-
+    let ofString (str:string) =
+        ofPath <| ActorPath.ofString str
+  
 type actorSelection with
-    static member (-->) (msg,ActorSelection(target)) = Seq.iter (fun t -> post t msg) target
-    static member (<--) (ActorSelection(target),msg)  = Seq.iter (fun t -> post t msg) target
-   
-[<AutoOpen>]
-module ActorSelectionOperations = 
+    static member (-->) (msg, ActorSelection(targets)) = Seq.iter (fun x -> post x msg) targets 
+    static member (<--) (ActorSelection(targets), msg) = Seq.iter (fun x -> post x msg) targets
 
-    let inline (!!) str = ActorSelection.select str
-            
+[<AutoOpen>]
+module ActorSelectionOperators =
+   let inline (!!) (path:string) = ActorSelection.ofString path           

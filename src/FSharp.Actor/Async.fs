@@ -88,7 +88,7 @@ module AsyncExtensions =
                 return bytes
             }
     
-        member x.AsyncReadBytes() =
+        member x.ReadBytesAsync() =
             async {
                 let! lengthArr = x.ReadBytesAsync 4
                 let length = BitConverter.ToInt32(lengthArr, 0)
