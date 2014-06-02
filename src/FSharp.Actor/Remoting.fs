@@ -6,19 +6,22 @@ open System.Net.Sockets
 open System.Threading
 open System.Collections.Concurrent
 open FSharp.Actor
-
 open Nessos.FsPickler
 
 type ActorProtocol = 
     | Message of target:actorPath * sender:actorPath * payload:obj
 
 type ITransport =
+    abstract Scheme : string with get
     abstract BasePath : actorPath with get
     abstract Post : actorPath * actorPath * obj -> unit
     abstract Start : CancellationToken -> unit
 
 type TCPTransport(config:TcpConfig<ActorProtocol>) = 
+    let scheme = "actor.tcp"
+    let basePath = ActorPath.ofString (sprintf "%s://%s/" scheme (config.ListenerEndpoint.ToString()))
     let mutable isStarted = false
+
     let listener =
         lazy
             let l = new TcpListener(config.ListenerEndpoint)
@@ -32,7 +35,7 @@ type TCPTransport(config:TcpConfig<ActorProtocol>) =
             let! (message:byte[]) = stream.ReadBytesAsync()
             match config.Deserialiser message with
             | Message(target, sender, payload) ->
-                (ActorSelection.ofPath target) <-- payload  
+                (ActorSelection.ofPath target).Post(payload, sender)
             return! messageHandler()
         }
 
@@ -45,7 +48,8 @@ type TCPTransport(config:TcpConfig<ActorProtocol>) =
         }
     
     interface ITransport with
-        member x.BasePath with get() = ActorPath.ofString (sprintf "actor.tcp://%s/" (config.ListenerEndpoint.ToString()))
+        member x.Scheme with get() = scheme
+        member x.BasePath with get() = basePath
         member x.Post(target, sender, payload) = 
             publishAsync (ActorPath.toNetAddress target) (Message(target, sender, payload)) 
             |> Async.StartImmediate
@@ -56,41 +60,52 @@ type TCPTransport(config:TcpConfig<ActorProtocol>) =
                 Async.Start(messageHandler(), ct)
 
 type RemoteActor(path:actorPath, transport:ITransport) =
+    override x.ToString() = path.ToString()
+
     interface IActor with
         member x.Path with get() = path
         member x.Post(msg, sender) =
-            transport.Post(path, ActorPath.rebase transport.BasePath (ActorRef.path sender), msg)
+            transport.Post(path, ActorPath.rebase transport.BasePath sender, msg)
         member x.Dispose() = ()
 
 type Beacon = Beacon of IPEndPoint
 
-type RegistryProtocol =
-    | NewActors of nodeName:string * actorPath list
+type ActorSystemProtocol =
+    | NewActors of systemName:string * actorPath list
 
-type DiscoverableRegistry(name:string, ?port:int, ?localRegistry : IActorRegistry, ?token) = 
+type RemotingEvents = 
+    | NewRemoteSystem of endpoint:IPEndPoint
+    | NewRemoteActor of path:actorPath
+
+type RemoteableActorSystem(?name:string, ?port:int, ?transports:seq<ITransport>, ?eventStream:IEventStream, ?onError, ?token) as sys =
+    inherit ActorSystem(?name = name, ?eventStream = eventStream, ?onError = onError) 
     let endpoint = new IPEndPoint(Net.getIPAddress(), defaultArg port (Net.getFirstFreePort()))
     let token = defaultArg token Async.DefaultCancellationToken
     
     let udp = new UDP<Beacon>(UdpConfig.Default(heartbeat = (5000, (fun _ -> Beacon endpoint))))
-    let tcp = new TCP<RegistryProtocol>(TcpConfig.Default(endpoint))
-    let listeningClients : Set<NetAddress> ref = ref Set.empty 
+    let tcp = new TCP<ActorSystemProtocol>(TcpConfig.Default(endpoint))
 
-    let registry = defaultArg localRegistry (new LocalActorRegistry() :> IActorRegistry)
-    let transport = new TCPTransport(TcpConfig.Default(new IPEndPoint(Net.getIPAddress(), 6667)))
+    let listeningClients : Set<NetAddress> ref = ref Set.empty
 
-    let resolveTransport (trnsport:string) = 
-        transport
+    let transports = 
+        defaultArg transports Seq.empty
+        |> Seq.map (fun t -> t.Start(token); t.Scheme, t)
+        |> Map.ofSeq
+
+    let resolveTransport (path:actorPath) =
+        path.Transport |> Option.bind (fun s -> Map.tryFind s transports) 
 
     do
         tcp.Recieved |> Event.add (fun (sender, msg) ->
             match msg with
             | NewActors(name, remotes) -> 
                 remotes |> List.iter (fun path -> 
-                    match (ActorPath.transport path) |> Option.map resolveTransport with
+                    match resolveTransport path with
                     | Some(transport) -> 
-                        let a = new RemoteActor(path, transport)
-                        registry.Register(ActorRef a)
-                    | None -> ())
+                        let a = new RemoteActor(path, transport) :> IActor
+                        sys.EventStream.Publish(NewRemoteActor(a.Path))
+                        ActorRegistry.register(ActorRef a)
+                    | None -> printfn "Unable to resolve transport for %A" path)
         )
 
         tcp.Start(token)
@@ -100,16 +115,31 @@ type DiscoverableRegistry(name:string, ?port:int, ?localRegistry : IActorRegistr
                         match b with
                         | Beacon ep->
                             listeningClients := Set.add (NetAddress ep) !listeningClients
-                            tcp.Publish(ep, NewActors(name, registry.All |> List.map ActorRef.path))
-        )
+                            sys.EventStream.Publish(NewRemoteSystem(ep))
+                            tcp.Publish(ep, NewActors(sys.Name, ActorRegistry.map ActorRef.path)))
 
         udp.Start(token)
     
-    interface IActorRegistry with
-        member x.Resolve(path) = registry.Resolve(path)
-        member x.Register(ref) = 
-            !listeningClients |> Set.toList |> List.iter (fun x -> tcp.Publish(x.Endpoint, NewActors(name,[ActorRef.path ref])))
-            registry.Register(ref)
-        member x.UnRegister(ref) = registry.UnRegister(ref)
-        member x.All with get() = registry.All
+    override x.ReportEvents() = 
+       base.ReportEvents()
+       x.EventStream.Subscribe(fun (evnt:RemotingEvents) -> x.Logger.DebugFormat(fun fmt -> fmt "RemoteEvent: %A" evnt))
 
+    member x.SpawnActor(transport:string, actor:ActorConfiguration<_>) = 
+        let actor = x.SpawnActor(actor)
+        match Map.tryFind transport transports with
+        | Some(transport) -> 
+            let actorPath = ActorRef.path actor
+            let remotePath = ActorPath.rebase transport.BasePath actorPath
+            printfn "Publishing remote path %A %A %A" remotePath transport.BasePath actorPath
+            for client in !listeningClients do
+                tcp.Publish(client.Endpoint, NewActors(sys.Name, [remotePath]))
+        | _ -> failwithf "Unknown transport %s" transport
+            
+
+[<AutoOpen>]
+module ActorSystemExtensions =
+
+    type ActorSystem with
+        static member CreateRemoteable(?port, ?transports, ?name, ?eventStream, ?onError) = 
+            let system = new RemoteableActorSystem(?name = name, ?port=port, ?transports=transports, ?eventStream = eventStream, ?onError = onError)
+            ActorSystem.TryAddSystem(system) :?> RemoteableActorSystem

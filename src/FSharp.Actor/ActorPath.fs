@@ -4,115 +4,139 @@ open System
 open System.Net
 open System.Net.NetworkInformation
 open System.Net.Sockets
+open FSharp.Actor
 
-type actorPath = ActorPath of Uri
+type private actorPathComponent =
+    | Transport of string
+    | System of string
+    | Host of string
+    | Port of int
+    | PathComponent of string[]
+
+type actorPath = {
+    Transport : string option
+    System : string option
+    Host : string option
+    Port : int option
+    HostType : UriHostNameType option
+    Path : string[]
+}
     with
-        override x.ToString() = 
-            let (ActorPath path) = x
-            path.ToString()
+        override x.ToString() =
+            match x.Port with
+            | Some(port) when port > -1 -> 
+                sprintf "%s://%s@%s:%d/%s" (defaultArg x.Transport "*") (defaultArg x.System "*") (defaultArg x.Host "*") port  (String.Join("/", x.Path))
+            | _ -> 
+                sprintf "%s://%s@%s/%s" (defaultArg x.Transport "*") (defaultArg x.System "*") (defaultArg x.Host "*") (String.Join("/", x.Path))
+
+        member x.IsAbsolute
+                with get() =  
+                    x.Transport.IsSome
+                    && x.Host.IsSome
+
+        static member internal Empty = 
+            { 
+                Transport = None
+                System = None
+                Host = None 
+                Port = None
+                HostType = None 
+                Path = [||] 
+            }    
+        static member internal Create(path:string, ?transport, ?system, ?host, ?port, ?hostType) = 
+            { 
+                Transport = Option.stringIsNoneIfBlank transport
+                System = Option.stringIsNoneIfBlank system 
+                Host = Option.stringIsNoneIfBlank host 
+                Port = port
+                HostType = hostType 
+                Path = path.Split([|'/'|], StringSplitOptions.RemoveEmptyEntries); 
+            }
+        static member internal OfUri(uri:Uri) = 
+            if uri.IsAbsoluteUri
+            then actorPath.Create(uri.LocalPath, uri.Scheme, uri.UserInfo, uri.Host, uri.Port, uri.HostNameType)
+            else actorPath.Create(uri.ToString())
+
+        static member internal OfString(str:string) =
+            let buildComponents (comp:string) = 
+                if comp.EndsWith(":")
+                then  [| Transport(comp.TrimEnd(':')) |]
+                else
+                    let processHost (host:string) = 
+                        match host.Split(':') with
+                        | [| host; port |] -> [| Host(host); Port(Int32.Parse(port)) |]
+                        | a -> [| Host(host) |]
+                    match comp.Split([|'@'|]) with
+                    | [|a|] when a.Contains(":") -> processHost a
+                    | [|node; host|] ->
+                        let host = processHost host
+                        Array.append [|System node|] host
+                    | a -> [|a |> PathComponent|]
+                
+            let buildPath state comp =
+                match comp with
+                | Transport(trsn) when trsn <> "*" && (not trsn.IsEmpty) -> { state with Transport = (Some trsn) }
+                | System(sys) when sys <> "*" && (not sys.IsEmpty) -> { state with System = (Some sys)}
+                | Host(host) when host <> "*" && (not host.IsEmpty) -> 
+                    let hostType = Uri.CheckHostName(host)
+                    { state with Host = (Some host); HostType = (Some hostType) }
+                | Port(port) -> { state with Port = (Some port) }
+                | PathComponent(path) -> { state with Path = Array.append state.Path path}
+                | _ -> state
+                 
+            str.Split([|"/"|], StringSplitOptions.RemoveEmptyEntries)
+            |> Array.collect buildComponents
+            |> Array.fold buildPath actorPath.Empty
 
 module ActorPath = 
-    
-    type Locality = 
-        | Local
-        | Remote
-        | Unknown
-
-    let inline private hostName() = Environment.MachineName
 
     let private ipAddress family =
         if NetworkInterface.GetIsNetworkAvailable()
         then 
-            let host = Dns.GetHostEntry(hostName())
+            let host = Dns.GetHostEntry(Environment.MachineName)
             host.AddressList
             |> Seq.tryFind (fun add -> add.AddressFamily = family)
         else None
 
-    let deadLetter : actorPath = ActorPath(new Uri("/deadletter", UriKind.Relative))
+    let ofString (str:string) = actorPath.OfString(str)
 
-    let locality (ActorPath path)= 
-        if path.IsAbsoluteUri
-        then
-            match path.HostNameType with
-            | UriHostNameType.Dns when hostName() = path.Host -> Local
-            | UriHostNameType.IPv4 when path.Host = ((ipAddress AddressFamily.InterNetwork).ToString()) -> Local
-            | UriHostNameType.IPv6 when path.Host = ((ipAddress AddressFamily.InterNetworkV6).ToString()) -> Local
-            | _ -> Remote
-        else Unknown
+    let deadLetter = ofString "/deadletter"
 
-    let ofString (str:string) =
-        match Uri.TryCreate("/" + str.TrimStart('/'), UriKind.RelativeOrAbsolute) with
-        | true, uri -> 
-            if uri.IsAbsoluteUri
-            then ActorPath uri
-            else ActorPath (new Uri(new Uri(sprintf "actor://%s" (hostName())),uri))
-        | false, _ -> failwithf "%s is not a valid actor path" str
-
-    let name (ActorPath path) = path.LocalPath
-
-    let internal setSystem system (ActorPath path) =
-        if path.IsAbsoluteUri
-        then
-            (new Uri(path.Scheme + "://"
-                        + system + "@"
-                        + path.Host + (if path.Port <> -1 then (":" + string(path.Port)) else "") + "/"
-                        + path.LocalPath.TrimStart('/'))) |> ActorPath
-        else failwithf "Cannot set the system on a relative path"
-               
-    let transport (ActorPath path) = 
-        if path.IsAbsoluteUri 
-        then Some path.Scheme
-        else None
-    
-    let system (ActorPath path) = 
-        if path.IsAbsoluteUri 
-            && not(String.IsNullOrEmpty(path.UserInfo)) 
-            && not(String.IsNullOrWhiteSpace(path.UserInfo))
-        then Some path.UserInfo
-        else None
-
-    let host (ActorPath path) = 
-        if path.IsAbsoluteUri 
-            && not(String.IsNullOrEmpty(path.Host)) 
-            && not(String.IsNullOrWhiteSpace(path.Host))
-        then Some path.Host
-        else None
-
-    let toString (ActorPath path) = path.AbsoluteUri
-
-    let components (ActorPath(path) as p) = 
-        match system p, host p with
-        | Some(s), Some(h) -> h :: s :: (path.Segments |> Array.toList)
-        | Some(s), None -> "*" :: s :: (path.Segments |> Array.toList)
-        | None, Some(h) -> h :: "*" ::  (path.Segments |> Array.toList)
-        | None, None -> "*" :: "*" :: (path.Segments |> Array.toList)
-        |> List.map (fun x ->
-            match x with
-            | "*" -> Trie.Wildcard
-            | a -> Trie.Key(a)
+    let internal setSystem (system:string) path =
+        if system.IsEmpty
+        then { path with System = None }
+        else { path with System = Some system }
+                   
+    let components (path:actorPath) = 
+        match path.System with
+        | Some(s) -> s :: (path.Path |> Array.toList)
+        | None -> "*" :: (path.Path |> Array.toList)
+        |> List.choose (function
+            | "*" -> Some Trie.Wildcard
+            | "/" -> None
+            | a -> Some (Trie.Key(a.Trim('/')))
         )
 
-    let toNetAddress (ActorPath path) = 
-        match path.HostNameType with
-        | UriHostNameType.IPv4-> NetAddress <| new IPEndPoint(IPAddress.Parse(path.Host), path.Port)
-        | UriHostNameType.Dns -> 
-            match Dns.GetHostEntry(path.Host) with
+    let toNetAddress (path:actorPath) = 
+        match path.HostType, path.Host, path.Port with
+        | Some(UriHostNameType.IPv4), Some(host), Some(port) -> NetAddress <| new IPEndPoint(IPAddress.Parse(host), port)
+        | Some(UriHostNameType.Dns), Some(host), Some(port) -> 
+            match Dns.GetHostEntry(host) with
             | null -> failwithf "Unable to resolve host for path %A" path
-            | host -> 
-                match host.AddressList |> Seq.tryFind (fun a -> a.AddressFamily = AddressFamily.InterNetwork) with
-                | Some(ip) -> NetAddress <| new IPEndPoint(ip, path.Port)
-                | None -> failwithf "Unable to find ipV4 address for %s" path.Host
+            | address -> 
+                match address.AddressList |> Seq.tryFind (fun a -> a.AddressFamily = AddressFamily.InterNetwork) with
+                | Some(ip) -> NetAddress <| new IPEndPoint(ip, port)
+                | None -> failwithf "Unable to find ipV4 address for %s" host
         | a -> failwithf "A host name type of %A is not currently supported" a
     
-    let rebase (ActorPath basePath) (ActorPath path) = 
-        let relativePart =
-            if path.IsAbsoluteUri
-            then path.LocalPath
-            else path.ToString()
-        if basePath.IsAbsoluteUri
+    let rebase (basePath:actorPath) (path:actorPath) =
+        if basePath.IsAbsolute
         then
-            match Uri.TryCreate(basePath, relativePart) with
-            | true, uri -> ActorPath uri
-            | false, _ -> failwithf "could not rebase actor path"
-        else 
-            ofString (basePath.ToString().TrimEnd('/') + "/" + (relativePart.TrimStart('/')))
+            let basePort = basePath.Port
+            { path with
+                Transport = basePath.Transport
+                Host = basePath.Host
+                Port = basePort
+                HostType = basePath.HostType
+            }
+        else path

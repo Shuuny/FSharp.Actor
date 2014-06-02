@@ -10,6 +10,35 @@ open System.Threading
 open Microsoft.FSharp.Control
 open Nessos.FsPickler
 
+module internal Net =
+
+
+    let getIPAddress() = 
+        if NetworkInterface.GetIsNetworkAvailable()
+        then 
+            let host = Dns.GetHostEntry(Dns.GetHostName())
+            host.AddressList
+            |> Seq.find (fun add -> add.AddressFamily = AddressFamily.InterNetwork)
+        else IPAddress.Loopback
+    
+    let getFirstFreePort() = 
+        let defaultPort = 8080
+        let usedports = 
+            IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners() 
+            |> Seq.map (fun x -> x.Port)
+        
+        let ports = 
+            seq { 
+                for port in defaultPort..defaultPort + 2048 do
+                    yield port
+            }
+        
+        let port = ports |> Seq.find (fun p -> Seq.forall ((<>) p) usedports)
+        port
+    
+    let availableEndpoint() =
+        new IPEndPoint(getIPAddress(), getFirstFreePort())
+
 [<CustomComparison; CustomEquality>]
 type NetAddress = 
     | NetAddress of IPEndPoint
@@ -154,6 +183,15 @@ type Pool<'a>(size:int, ctor: (unit -> 'a)) =
                 Serialiser = defaultArg serialiser (pickler.Pickle)
                 Deserialiser = defaultArg deserialiser (pickler.UnPickle)
             }
+        static member Default<'a>(?port, ?id, ?serialiser, ?deserialiser) : TcpConfig<'a> = 
+            let pickler = new FsPickler()
+            {
+                Id = defaultArg id (Guid.NewGuid().ToString())
+                ListenerEndpoint = (new IPEndPoint(Net.getIPAddress(), defaultArg port (Net.getFirstFreePort())))
+                Backlog = 10000
+                Serialiser = defaultArg serialiser (pickler.Pickle)
+                Deserialiser = defaultArg deserialiser (pickler.UnPickle)
+            }
 
     type TCP<'a>(config:TcpConfig<'a>) =        
         let received = new Event<NetAddress * 'a>()
@@ -193,32 +231,3 @@ type Pool<'a>(size:int, ctor: (unit -> 'a)) =
             if not isStarted
             then 
                 Async.Start(messageHandler(), ct)
-
-module internal Net =
-
-
-    let getIPAddress() = 
-        if NetworkInterface.GetIsNetworkAvailable()
-        then 
-            let host = Dns.GetHostEntry(Dns.GetHostName())
-            host.AddressList
-            |> Seq.find (fun add -> add.AddressFamily = AddressFamily.InterNetwork)
-        else IPAddress.Loopback
-    
-    let getFirstFreePort() = 
-        let defaultPort = 8080
-        let usedports = 
-            IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners() 
-            |> Seq.map (fun x -> x.Port)
-        
-        let ports = 
-            seq { 
-                for port in defaultPort..defaultPort + 2048 do
-                    yield port
-            }
-        
-        let port = ports |> Seq.find (fun p -> Seq.forall ((<>) p) usedports)
-        port
-    
-    let availableEndpoint() =
-        new IPEndPoint(getIPAddress(), getFirstFreePort())

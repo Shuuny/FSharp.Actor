@@ -14,8 +14,8 @@ open FSharp.Actor
 
 
 type Message<'a> = {
-    Sender : actorRef
-    Target : actorRef
+    Sender : actorPath
+    Target : actorPath
     Message : 'a
 }
 
@@ -48,7 +48,7 @@ type SystemMessage =
     | Errored of ErrorContext
 
 type ActorLogger(path:actorPath, logger : Log.ILogger) =
-    inherit Log.Logger(ActorPath.toString path, logger)
+    inherit Log.Logger(path.ToString(), logger)
 
 
 type ActorCell<'a> = {
@@ -62,6 +62,7 @@ with
         async { return! x.Mailbox.Receive(defaultArg timeout Timeout.Infinite) }
     member x.Scan(f, ?timeout) = 
         async { return! x.Mailbox.Scan(defaultArg timeout Timeout.Infinite, f) }
+    member internal x.Path = ActorRef.path x.Self
 
 type ActorConfiguration<'a> = {
     Path : actorPath
@@ -107,7 +108,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             publishEvent(ActorEvents.ActorErrored(ctx.Self, err))
             match defn.Parent with
             | ActorRef(actor) -> 
-                actor.Post(Errored({ Error = err; Sender = ctx.Self; Children = ctx.Children }),ctx.Self)
+                actor.Post(Errored({ Error = err; Sender = ctx.Self; Children = ctx.Children }),ctx.Path)
                 return ()
             | Null -> return! shutdown() 
         }
@@ -186,19 +187,19 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
         ctx.Children |> List.iter ((-->) (SetParent(ctx.Self)))
         start()
    
-    override x.ToString() = ActorPath.toString defn.Path
+    override x.ToString() = defn.Path.ToString()
 
     interface IActor with
         member x.Path with get() = defn.Path
         member x.Post(msg, sender) =
                match msg with
                | :? SystemMessage as msg -> systemMailbox.Post(msg)
-               | msg -> mailbox.Post({Target = ActorRef(x); Sender = sender; Message = unbox<'a> msg})
+               | msg -> mailbox.Post({Target = ctx.Path; Sender = sender; Message = unbox<'a> msg})
 
     interface IActor<'a> with
         member x.Path with get() = defn.Path
         member x.Post(msg:'a, sender) =
-             mailbox.Post({Target = ActorRef(x); Sender = sender; Message = msg}) 
+             mailbox.Post({Target = ctx.Path; Sender = sender; Message = msg}) 
 
     interface IDisposable with  
         member x.Dispose() =

@@ -51,6 +51,7 @@
   </Choose>
   <Import Project="$(FSharpTargetsPath)" Condition="Exists('$(FSharpTargetsPath)')" />
   <ItemGroup>
+    <Compile Include="Helpers.fs" />
     <Compile Include="Trie.fs" />
     <Compile Include="Async.fs" />
     <Compile Include="Net.fs" />
@@ -66,14 +67,18 @@
     <Compile Include="Remoting.fs" />
     <Compile Include="AssemblyInfo.fs" />
     <None Include="FSharp.Actor.fsx" />
-    <None Include="Scratch.fsx" />
+    <None Include="SpaceShooter.fsx" />
+    <None Include="packages.config" />
+    <None Include="Remoting_Node1.fsx" />
+    <None Include="Remoting_Node2.fsx" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FSharp.Core, Version=$(TargetFSharpCoreVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
       <Private>True</Private>
     </Reference>
     <Reference Include="FsPickler">
-      <HintPath>C:\Users\Colin\SkyDrive\Documents\TcpExperiments\packages\FsPickler.0.8.6.2\lib\net45\FsPickler.dll</HintPath>
+      <HintPath>..\..\packages\FsPickler.0.8.6.2\lib\net45\FsPickler.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="System" />

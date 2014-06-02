@@ -1,5 +1,5 @@
 ﻿#load "FSharp.Actor.fsx"
-
+open System
 open FSharp.Actor
 
 let system = ActorSystem.Create("world", onError = (fun err -> err.Sender <-- Restart))
@@ -23,37 +23,61 @@ type SpaceshipAction =
     | Fire of Weapon
     | TakeHit of Weapon
 
+type Position = {
+    X: int; Y: int
+}
+
 type Spaceship = {
-    PositionX : int
-    PositionY : int
+    Id : Guid
+    Position : Position
     Arsenal : Map<Weapon, int>
     Armour : int
     Shield : int
 }
 with
-    static member Empty =
-        {
-            PositionX = 0; PositionY = 0; 
-            Arsenal = Map [Cannon, 500;  Missile, 3] 
-            Armour = 100
-            Shield = 100
-        }
+    static member Empty
+        with get() =
+            {
+                Id = Guid.NewGuid()
+                Position = { X = 0; Y = 0 } 
+                Arsenal = Map [Cannon, 500;  Missile, 3] 
+                Armour = 100
+                Shield = 100
+            }
     member x.IsDestroyed = x.Armour <= 0
 
-type RendererAction =
-    | UpdateShip of Spaceship
+type ItemClass = 
+    | Ship
+    | Projectile
 
-let renderer = 
+type UniverseAction =
+    | ItemUpdate of Guid * (ItemClass * Position)
+    | ItemDestroyed of Guid
+
+type UniverseState = {
+    Items : Map<Guid, (ItemClass * Position) ref> 
+}
+with 
+    static member Empty with get() = { Items = Map.empty }
+
+let universe = 
     actor { 
-        path "renderer"
+        path "universe"
         messageHandler (fun actor -> 
-            let rec loop() = async {
+            let rec loop (state:UniverseState) = async {
                 let! msg = actor.Receive()
-                match msg.Message with
-                | UpdateShip(ship) -> actor.Logger.DebugFormat(fun r -> r "ship location X:%d Y:%d Armour:%d Shield:%d" ship.PositionX ship.PositionY ship.Armour ship.Shield)
-                return! loop()
+                let state =
+                    match msg.Message with
+                    | ItemUpdate(id, x) ->
+                        match Map.tryFind id state.Items with
+                        | Some(v) ->  v := x; state
+                        | None -> { state with Items = Map.add id (ref x) state.Items}
+                    | ItemDestroyed(id) -> 
+                        { state with Items = Map.remove id state.Items }    
+                actor.Logger.DebugFormat(fun fmt -> fmt "%A" state.Items)
+                return! loop state
             }
-            loop()
+            loop UniverseState.Empty
         )
     } |> system.SpawnActor
 
@@ -61,19 +85,15 @@ let spaceship =
     actor {
         path "spaceship"
         messageHandler (fun actor ->
-            let renderer = !!"renderer"
+            let universe = !!"universe"
             let rec loop (state:Spaceship) = async {
                 let! msg = actor.Receive()
                 let state =
                     match msg.Message with
-                    | MoveLeft ->  
-                        { state with PositionX = (max 0 (state.PositionX - 1))}
-                    | MoveRight ->  
-                        { state with PositionX = (max 0 (state.PositionX + 1))}
-                    | MoveUp ->  
-                        { state with PositionY = (max 0 (state.PositionY + 1))}
-                    | MoveDown ->  
-                        { state with PositionY = (max 0 (state.PositionY - 1))}
+                    | MoveLeft -> { state with Position = { state.Position with X = (max 0 (state.Position.X - 1)) }}
+                    | MoveRight -> { state with Position = { state.Position with X = (max 0 (state.Position.X + 1)) }}
+                    | MoveUp -> { state with Position = { state.Position with Y = (max 0 (state.Position.Y + 1)) }}
+                    | MoveDown -> { state with Position = { state.Position with Y = (max 0 (state.Position.Y - 1)) }}
                     | Fire weapon -> 
                         match state.Arsenal.[weapon] with
                         | 0 -> state
@@ -82,10 +102,10 @@ let spaceship =
                         if state.Shield = 0
                         then { state with Armour = max 0 (state.Armour - weapon.Damage) }
                         else { state with Shield = max 0 (state.Shield - weapon.Damage) }
-
+                  
                 if state.IsDestroyed
                 then failwithf "Ship destroyed"
-                else renderer <-- UpdateShip state
+                else universe <-- ItemUpdate(state.Id, (Ship, state.Position))
                 return! loop state
             }
             loop Spaceship.Empty)
@@ -106,7 +126,7 @@ let rec gameLoop() = async {
         | 7 -> TakeHit Missile
         | _ -> failwithf "WTF!!"
     spaceship <-- action
-    do! Async.Sleep(750)
+    do! Async.Sleep(150)
     return! gameLoop()
 }
 
@@ -115,6 +135,3 @@ let start() =
 
 let stop() = 
     cts.Cancel()
-
-
-

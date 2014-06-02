@@ -10,7 +10,7 @@ type IActorRegistry =
     abstract UnRegister : actorRef -> unit
     abstract All : actorRef list with get
 
-type LocalActorRegistry() =
+type InMemoryActorRegistry() =
     let syncObj = new ReaderWriterLockSlim()
     let actors : Trie.trie<actorRef> ref = ref Trie.empty
     interface IActorRegistry with
@@ -19,20 +19,37 @@ type LocalActorRegistry() =
         member x.Resolve(path) = 
             try
                 syncObj.EnterReadLock()
-                Trie.resolve (ActorPath.components path) !actors
+                let comps = ActorPath.components path
+                Trie.resolve comps !actors
             finally
                 syncObj.ExitReadLock()
 
         member x.Register(actor) =
             try
+                let components = ActorPath.components (ActorRef.path actor)
                 syncObj.EnterWriteLock()
-                actors := Trie.add (ActorPath.components (ActorRef.path actor)) actor !actors
+                actors := Trie.add components actor !actors
             finally
                 syncObj.ExitWriteLock()
 
         member x.UnRegister actor =
             try
+                let components = ActorPath.components (ActorRef.path actor)
                 syncObj.EnterWriteLock()
-                actors := Trie.remove (ActorPath.components (ActorRef.path actor)) !actors
+                actors := Trie.remove components !actors
             finally
                 syncObj.ExitWriteLock()
+
+module ActorRegistry = 
+    
+    let mutable private instance : IActorRegistry = (new InMemoryActorRegistry() :> IActorRegistry)
+
+    let setRegistry(registry:IActorRegistry) = 
+        instance <- registry
+
+    let resolve path = instance.Resolve path
+    let register actor = instance.Register actor
+    let unRegister actor = instance.UnRegister actor
+
+    let map f =  instance.All |> List.map f
+    let iter f = instance.All |> List.iter f

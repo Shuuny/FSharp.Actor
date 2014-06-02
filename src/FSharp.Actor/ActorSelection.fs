@@ -1,5 +1,6 @@
 ﻿namespace FSharp.Actor
 
+open System
 open FSharp.Actor
 
 type actorSelection = 
@@ -7,20 +8,15 @@ type actorSelection =
     with
        member x.Post(msg) =
             let (ActorSelection(target)) = x 
-            Seq.iter (fun t -> post t msg) target
+            List.iter (fun t -> post t msg) target
+       member x.Post(msg, sender) =
+            let (ActorSelection(target)) = x 
+            List.iter (fun (t:actorRef) -> postWithSender t sender msg) target
 
 module ActorSelection =
-    
+            
     let ofPath (path:actorPath) =
-        match ActorPath.system path with
-        | Some(sys) ->
-            match ActorSystem.TryGetSystem(sys) with
-            | Some(sys) -> sys.Resolve(path)
-            | None -> []
-        | None -> 
-            ActorSystem.Systems
-            |> Seq.collect (fun x -> x.Resolve(path))
-            |> Seq.toList
+        ActorRegistry.resolve path
         |> ActorSelection
 
     let ofString (str:string) =

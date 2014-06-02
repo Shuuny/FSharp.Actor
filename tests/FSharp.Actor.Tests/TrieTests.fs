@@ -47,6 +47,30 @@ type ``Given a trie``() =
         actual |> should equal expected
 
     [<Test>]
+    member t.``I can add different values with a different root``() =
+        let actual = 
+            Trie.empty 
+            |> Trie.add [Trie.Key "a";Trie.Key "b"] "ab" 
+            |> Trie.add [Trie.Key "b";Trie.Key "c"] "bc"
+        let expected = 
+            Trie.Node (None,
+                        Map [
+                            (Trie.Key "a", Trie.Node (None, 
+                                                Map [
+                                                        (Trie.Key "b", Trie.Node (Some "ab", Map []))
+                                                    ]
+                                            )
+                            )
+                            (Trie.Key "b", Trie.Node (None, 
+                                                Map [
+                                                        (Trie.Key "c", Trie.Node (Some "bc", Map []))
+                                                    ]
+                                            )
+                            )]
+                      )
+        actual |> should equal expected
+
+    [<Test>]
     member t.``I can retrieve a node with its children``() =
         let actual = 
             Trie.add [Trie.Key "a";Trie.Key "b"] "ab" Trie.empty
@@ -55,6 +79,28 @@ type ``Given a trie``() =
             |> Trie.values
         printfn "%A" actual
         let expected = ["ab"; "ac"]
+        actual |> should equal expected
+
+    [<Test>]
+    member t.``I can retrieve from a trie with mutiple roots``() =
+        let actual = 
+            Trie.add [Trie.Key "a";Trie.Key "b"] "ab" Trie.empty
+            |> Trie.add [Trie.Key "b"; Trie.Key "c"] "bc"
+            |> Trie.subtrie [Trie.Key "a"]
+            |> Trie.values
+        printfn "%A" actual
+        let expected = ["ab"]
+        actual |> should equal expected
+
+    [<Test>]
+    member t.``I can retrieve from a trie with mutiple roots and get the other key``() =
+        let actual = 
+            Trie.add [Trie.Key "a";Trie.Key "b"] "ab" Trie.empty
+            |> Trie.add [Trie.Key "b"; Trie.Key "c"] "bc"
+            |> Trie.subtrie [Trie.Key "b"]
+            |> Trie.values
+        printfn "%A" actual
+        let expected = ["bc"]
         actual |> should equal expected
 
     [<Test>]

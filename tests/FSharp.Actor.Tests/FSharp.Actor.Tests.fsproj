@@ -53,6 +53,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="TrieTests.fs" />
+    <Compile Include="ActorPathTests.fs" />
+    <Compile Include="LocalRegistryTests.fs" />
     <None Include="Script.fsx" />
     <None Include="packages.config" />
     <None Include="app.config" />
