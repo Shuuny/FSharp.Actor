@@ -16,7 +16,15 @@ type actorSelection =
 module ActorSelection =
             
     let ofPath (path:actorPath) =
-        ActorRegistry.resolve path
+        match path.System with
+        | Some(sys) -> 
+            match ActorSystem.TryGetSystem(sys) with
+            | Some(sys) -> sys.Resolve(path)
+            | None -> []
+        | None -> 
+            ActorSystem.Systems 
+            |> Seq.collect (fun x -> x.Resolve(path))
+            |> Seq.toList
         |> ActorSelection
 
     let ofString (str:string) =

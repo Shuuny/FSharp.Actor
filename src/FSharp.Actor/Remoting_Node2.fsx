@@ -20,15 +20,22 @@ let node2Actor =
         path "dispatcher"
         messageHandler (fun ctx -> 
             let log = ctx.Logger
-            let remoteActor = !!"/ping" 
+           
             let rec loop () = async {
                 let! msg = ctx.Receive()
+                printfn "Message: %A" msg
                 match msg.Message with
-                | SendToPing msg -> remoteActor <-- msg
+                | SendToPing msg ->
+                    let remoteActor = !!"ping" 
+                    printfn "Sending to %A %s" remoteActor msg
+                    remoteActor <-- msg
                 | KeepLocal msg -> printfn "Recieved %s" msg 
                 return! loop()
             }
             loop())
     }
+    
 node2.SpawnActor("actor.tcp", node2Actor)
 !!"dispatcher" <-- SendToPing "Hello, from node 2"
+
+let p = !!"ping"

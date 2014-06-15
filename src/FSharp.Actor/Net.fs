@@ -12,7 +12,6 @@ open Nessos.FsPickler
 
 module internal Net =
 
-
     let getIPAddress() = 
         if NetworkInterface.GetIsNetworkAvailable()
         then 
@@ -65,7 +64,6 @@ type NetAddress =
                 match add with
                 | NetAddress(ip) ->  ip.ToString().CompareTo(x.ToString())
             | _ -> -1
-
 
 
 type UdpConfig<'a> = {
@@ -151,83 +149,93 @@ type UDP<'a>(?config:UdpConfig<'a>) =
             | None -> ()
             isStarted <- true
 
-type Pool<'a>(size:int, ctor: (unit -> 'a)) = 
-    let argsPool = new BlockingCollection<'a>(size)
+type TcpConfig<'a> = {
+    Id : string
+    ListenerEndpoint : IPEndPoint
+    Backlog : int
+    Serialiser : ('a -> byte[])
+    Deserialiser : (byte[] -> 'a)
+}
+with
+    static member Default<'a>(listener, ?id, ?serialiser, ?deserialiser, ?logger) : TcpConfig<'a> = 
+        let pickler = new FsPickler()
+        {
+            Id = defaultArg id (Guid.NewGuid().ToString())
+            ListenerEndpoint = listener
+            Backlog = 10000
+            Serialiser = defaultArg serialiser (pickler.Pickle)
+            Deserialiser = defaultArg deserialiser (pickler.UnPickle)
+        }
+    static member Default<'a>(?port, ?id, ?serialiser, ?deserialiser) : TcpConfig<'a> = 
+        let pickler = new FsPickler()
+        {
+            Id = defaultArg id (Guid.NewGuid().ToString())
+            ListenerEndpoint = (new IPEndPoint(Net.getIPAddress(), defaultArg port (Net.getFirstFreePort())))
+            Backlog = 10000
+            Serialiser = defaultArg serialiser (pickler.Pickle)
+            Deserialiser = defaultArg deserialiser (pickler.UnPickle)
+        }
 
-    do
-      for i in 1 .. size do
-            argsPool.Add (ctor())  
+type TCP<'a>(config:TcpConfig<'a>) =        
+    let received = new Event<NetAddress * 'a>()
+    let correlationStore = new ConcurrentDictionary<Guid, AsyncResultCell<'a>>()
+    let mutable isStarted = false
+    let listener =
+        lazy
+            let l = new TcpListener(config.ListenerEndpoint)
+            l.Start(config.Backlog)
+            l
 
-    member a.CheckOut(timeout:int) = 
-         let result = ref (Unchecked.defaultof<_>)
-         if argsPool.TryTake(result, timeout)
-         then !result
-         else raise(TimeoutException())
-
-    member a.CheckIn(args) = argsPool.Add(args)
-
-    type TcpConfig<'a> = {
-        Id : string
-        ListenerEndpoint : IPEndPoint
-        Backlog : int
-        Serialiser : ('a -> byte[])
-        Deserialiser : (byte[] -> 'a)
-    }
-    with
-        static member Default<'a>(listener, ?id, ?serialiser, ?deserialiser) : TcpConfig<'a> = 
-            let pickler = new FsPickler()
-            {
-                Id = defaultArg id (Guid.NewGuid().ToString())
-                ListenerEndpoint = listener
-                Backlog = 10000
-                Serialiser = defaultArg serialiser (pickler.Pickle)
-                Deserialiser = defaultArg deserialiser (pickler.UnPickle)
-            }
-        static member Default<'a>(?port, ?id, ?serialiser, ?deserialiser) : TcpConfig<'a> = 
-            let pickler = new FsPickler()
-            {
-                Id = defaultArg id (Guid.NewGuid().ToString())
-                ListenerEndpoint = (new IPEndPoint(Net.getIPAddress(), defaultArg port (Net.getFirstFreePort())))
-                Backlog = 10000
-                Serialiser = defaultArg serialiser (pickler.Pickle)
-                Deserialiser = defaultArg deserialiser (pickler.UnPickle)
-            }
-
-    type TCP<'a>(config:TcpConfig<'a>) =        
-        let received = new Event<NetAddress * 'a>()
-        let mutable isStarted = false
-        let listener =
-            lazy
-                let l = new TcpListener(config.ListenerEndpoint)
-                l.Start(config.Backlog)
-                l
-
-        let rec messageHandler() = async {
-                let! client = listener.Value.AcceptTcpClientAsync() |> Async.AwaitTask
-                use client = client
-                use stream = client.GetStream()
-                let! (message:byte[]) = stream.ReadBytesAsync()
-                received.Trigger <| ((NetAddress.OfEndPoint client.Client.RemoteEndPoint),config.Deserialiser message)
-                return! messageHandler()
-            }
-
-        let publishAsync (endpoint:IPEndPoint) (payload:'a) = async {
-                use client = new TcpClient()
-                client.Connect(endpoint)
-                use stream  = client.GetStream()
-                do! stream.WriteBytesAsync(config.Serialiser payload)
-                do! stream.FlushAsync().ContinueWith(ignore) |> Async.AwaitTask
-            }
-        
-        member x.Recieved = received.Publish
-
-        member x.Publish(endpoint, payload) = 
-            publishAsync endpoint payload |> Async.RunSynchronously
-
-        member x.PublishAsync(endpoint, payload) = 
-            publishAsync endpoint payload
-
-        member x.Start(ct) =
-            if not isStarted
+    let rec messageHandler() = async {
+            let! client = listener.Value.AcceptTcpClientAsync() |> Async.AwaitTask
+            use client = client
+            use stream = client.GetStream()
+            let! (message:byte[]) = stream.ReadBytesAsync()
+            if message.Length > 16
             then 
-                Async.Start(messageHandler(), ct)
+                let guid = new Guid(message.[0..15])
+                let body = config.Deserialiser message.[16..]
+                match correlationStore.TryGetValue(guid) with
+                | true, resultCell -> resultCell.Complete(body)
+                | false, _ ->
+                    received.Trigger <| ((NetAddress.OfEndPoint client.Client.RemoteEndPoint),body)
+            return! messageHandler()
+        }
+
+    let publishAsync (endpoint:IPEndPoint) (payload:'a) = async {
+            use client = new TcpClient()
+            client.Connect(endpoint)
+            use stream  = client.GetStream()
+            do! stream.WriteBytesAsync(Array.append (Guid.NewGuid().ToByteArray()) (config.Serialiser payload))
+            do! stream.FlushAsync().ContinueWith(ignore) |> Async.AwaitTask
+        }
+    
+    member x.Recieved = received.Publish
+
+    member x.Publish(endpoint, payload) = 
+        publishAsync endpoint payload |> Async.RunSynchronously
+
+    member x.PublishAsync(endpoint, payload) = 
+        publishAsync endpoint payload
+
+    member x.TryPostAndReplyAsync(endpoint, payload, ?timeout) =  async {
+            let correlationId = Guid.NewGuid()
+            let resultCell = new AsyncResultCell<'a>()
+            correlationStore.AddOrUpdate(correlationId, resultCell, fun _ _ -> resultCell) |> ignore
+            use client = new TcpClient()
+            client.Connect(endpoint)
+            use stream  = client.GetStream()
+            do! stream.WriteBytesAsync(Array.append (correlationId.ToByteArray()) (config.Serialiser payload))
+            do! stream.FlushAsync().ContinueWith(ignore) |> Async.AwaitTask
+            let! result = resultCell.AwaitResult(?timeout = timeout)
+            correlationStore.TryRemove(correlationId) |> ignore
+            return result
+        }
+
+    member x.TryPostAndReply(endpoint, payload, ?timeout) = 
+        x.TryPostAndReplyAsync(endpoint, payload, ?timeout = timeout) |> Async.RunSynchronously
+
+    member x.Start(ct) =
+        if not isStarted
+        then 
+            Async.Start(messageHandler(), ct)

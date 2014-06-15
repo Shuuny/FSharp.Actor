@@ -206,6 +206,24 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
             messageHandlerCancel.Dispose()
             cts.Dispose()
 
+type ActorProtocol = 
+    | Message of target:actorPath * sender:actorPath * payload:obj
+
+type ITransport =
+    abstract Scheme : string with get
+    abstract BasePath : actorPath with get
+    abstract Post : actorPath * actorPath * obj -> unit
+    abstract Start : CancellationToken -> unit
+
+type RemoteActor(path:actorPath, transport:ITransport) =
+    override x.ToString() = path.ToString()
+
+    interface IActor with
+        member x.Path with get() = path
+        member x.Post(msg, sender) =
+            transport.Post(path, ActorPath.rebase transport.BasePath sender, msg)
+        member x.Dispose() = ()
+
 module Actor = 
     
     let create (config:ActorConfiguration<'a>) = 
