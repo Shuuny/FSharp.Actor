@@ -80,5 +80,9 @@ type RemoteActorSystem(name:string, listeningEndpoint:IPEndPoint, endpoint:IPEnd
             match channel.TryPostAndReply(endpoint, Query(path)) with
             | Some(QueryResponse(reply)) -> 
                 reply
-                |> List.map (fun p -> )
+                |> List.map (fun p ->
+                    let transport = ActorHost.resolveTransport p.Transport.Value
+                    ActorRef(new RemoteActor(p, transport))
+                )
+            | _ -> []
         
