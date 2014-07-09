@@ -53,5 +53,6 @@ type TCPTransport(config:TcpConfig<ActorProtocol>, handler:(ActorProtocol -> Asy
 
         member x.Start(ct) =
             if not isStarted
-            then 
+            then
                 Async.Start(messageHandler(), ct)
+                logger.DebugFormat(fun fmt -> fmt "Transport %A started" (x :> ITransport).Scheme)

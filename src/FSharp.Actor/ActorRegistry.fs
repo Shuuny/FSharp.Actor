@@ -4,16 +4,18 @@ open System
 open System.Net
 open System.Threading
 
-type IActorRegistry = 
-    abstract Resolve : actorPath -> actorRef list
-    abstract Register : actorRef -> unit
-    abstract UnRegister : actorRef -> unit
-    abstract All : actorRef list with get
+type IRegistry<'key, 'ref> = 
+    abstract Resolve : 'key -> 'ref list
+    abstract Register : 'ref -> unit
+    abstract UnRegister : 'ref -> unit
+    abstract All : 'ref list with get
+
+type ActorRegistry = IRegistry<actorPath, actorRef>
 
 type InMemoryActorRegistry() =
     let syncObj = new ReaderWriterLockSlim()
     let actors : Trie.trie<actorRef> ref = ref Trie.empty
-    interface IActorRegistry with
+    interface IRegistry<actorPath, actorRef> with
         member x.All with get() = !actors |> Trie.values
 
         member x.Resolve(path) = 
@@ -39,17 +41,3 @@ type InMemoryActorRegistry() =
                 actors := Trie.remove components !actors
             finally
                 syncObj.ExitWriteLock()
-
-module ActorRegistry = 
-    
-    let mutable private instance : IActorRegistry = (new InMemoryActorRegistry() :> IActorRegistry)
-
-    let setRegistry(registry:IActorRegistry) = 
-        instance <- registry
-
-    let resolve path = instance.Resolve path
-    let register actor = instance.Register actor
-    let unRegister actor = instance.UnRegister actor
-
-    let map f =  instance.All |> List.map f
-    let iter f = instance.All |> List.iter f

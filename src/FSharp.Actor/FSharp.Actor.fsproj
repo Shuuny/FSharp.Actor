@@ -62,8 +62,8 @@
     <Compile Include="ActorRef.fs" />
     <Compile Include="Actor.fs" />
     <Compile Include="ActorRegistry.fs" />
-    <Compile Include="ActorHost.fs" />
     <Compile Include="ActorSystem.fs" />
+    <Compile Include="ActorHost.fs" />
     <Compile Include="TcpTransport.fs" />
     <Compile Include="ActorSelection.fs" />
     <Compile Include="AssemblyInfo.fs" />

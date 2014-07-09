@@ -17,14 +17,10 @@ module ActorSelection =
             
     let ofPath (path:actorPath) =
         match path.System with
-        | Some(sys) -> 
-            match ActorSystem.TryGetSystem(sys) with
-            | Some(sys) -> sys.Resolve(path)
-            | None -> []
-        | None -> 
-            ActorSystem.Systems 
-            |> Seq.collect (fun x -> x.Resolve(path))
-            |> Seq.toList
+        | Some(sys) -> ActorHost.resolveSystem sys 
+        | None -> ActorHost.systems() 
+        |> Seq.collect (fun x -> x.Resolve(path))
+        |> Seq.toList
         |> ActorSelection
 
     let ofString (str:string) =
