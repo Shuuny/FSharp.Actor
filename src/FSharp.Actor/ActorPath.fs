@@ -8,14 +8,12 @@ open FSharp.Actor
 
 type private actorPathComponent =
     | Transport of string
-    | System of string
     | Host of string
     | Port of int
     | PathComponent of string[]
 
 type actorPath = {
     Transport : string option
-    System : string option
     Host : string option
     Port : int option
     HostType : UriHostNameType option
@@ -25,9 +23,9 @@ type actorPath = {
         override x.ToString() =
             match x.Port with
             | Some(port) when port > -1 -> 
-                sprintf "%s://%s@%s:%d/%s" (defaultArg x.Transport "*") (defaultArg x.System "*") (defaultArg x.Host "*") port  (String.Join("/", x.Path))
+                sprintf "%s://%s:%d/%s" (defaultArg x.Transport "*") (defaultArg x.Host "*") port  (String.Join("/", x.Path))
             | _ -> 
-                sprintf "%s://%s@%s/%s" (defaultArg x.Transport "*") (defaultArg x.System "*") (defaultArg x.Host "*") (String.Join("/", x.Path))
+                sprintf "%s://%s/%s" (defaultArg x.Transport "*") (defaultArg x.Host "*") (String.Join("/", x.Path))
 
         member x.IsAbsolute
                 with get() =  
@@ -37,7 +35,6 @@ type actorPath = {
         static member internal Empty = 
             { 
                 Transport = None
-                System = None
                 Host = None 
                 Port = None
                 HostType = None 
@@ -46,7 +43,6 @@ type actorPath = {
         static member internal Create(path:string, ?transport, ?system, ?host, ?port, ?hostType) = 
             { 
                 Transport = Option.stringIsNoneIfBlank transport
-                System = Option.stringIsNoneIfBlank system 
                 Host = Option.stringIsNoneIfBlank host 
                 Port = port
                 HostType = hostType 
@@ -62,21 +58,13 @@ type actorPath = {
                 if comp.EndsWith(":")
                 then  [| Transport(comp.TrimEnd(':')) |]
                 else
-                    let processHost (host:string) = 
-                        match host.Split(':') with
-                        | [| host; port |] -> [| Host(host); Port(Int32.Parse(port)) |]
-                        | a -> [| Host(host) |]
-                    match comp.Split([|'@'|]) with
-                    | [|a|] when a.Contains(":") -> processHost a
-                    | [|node; host|] ->
-                        let host = processHost host
-                        Array.append [|System node|] host
+                    match comp.Split(':') with
+                    | [| host; port |] -> [| Host(host); Port(Int32.Parse(port)) |]
                     | a -> [|a |> PathComponent|]
-                
+
             let buildPath state comp =
                 match comp with
                 | Transport(trsn) when trsn <> "*" && (not trsn.IsEmpty) -> { state with Transport = (Some trsn) }
-                | System(sys) when sys <> "*" && (not sys.IsEmpty) -> { state with System = (Some sys)}
                 | Host(host) when host <> "*" && (not host.IsEmpty) -> 
                     let hostType = Uri.CheckHostName(host)
                     { state with Host = (Some host); HostType = (Some hostType) }
@@ -101,16 +89,9 @@ module ActorPath =
     let ofString (str:string) = actorPath.OfString(str)
 
     let deadLetter = ofString "/deadletter"
-
-    let internal setSystem (system:string) path =
-        if system.IsEmpty
-        then { path with System = None }
-        else { path with System = Some system }
                    
     let components (path:actorPath) = 
-        match path.System with
-        | Some(s) -> s :: (path.Path |> Array.toList)
-        | None -> "*" :: (path.Path |> Array.toList)
+        (path.Path |> Array.toList)
         |> List.choose (function
             | "*" -> Some Trie.Wildcard
             | "/" -> None

@@ -14,13 +14,9 @@ type actorSelection =
             List.iter (fun (t:actorRef) -> postWithSender t sender msg) target
 
 module ActorSelection =
-            
+
     let ofPath (path:actorPath) =
-        match path.System with
-        | Some(sys) -> ActorHost.resolveSystem sys 
-        | None -> ActorHost.systems() 
-        |> Seq.collect (fun x -> x.Resolve(path))
-        |> Seq.toList
+        ActorHost.configuration.Registry.Resolve path
         |> ActorSelection
 
     let ofString (str:string) =
@@ -32,4 +28,6 @@ type actorSelection with
 
 [<AutoOpen>]
 module ActorSelectionOperators =
-   let inline (!!) (path:string) = ActorSelection.ofString path           
+   let inline (!!) (path:string) = ActorSelection.ofString path     
+   let inline (!~) (path:actorPath) = ActorSelection.ofPath path
+          

@@ -6,6 +6,7 @@ open System.Threading
 
 type IRegistry<'key, 'ref> = 
     abstract Resolve : 'key -> 'ref list
+    abstract ResolveAsync : 'key * TimeSpan option -> Async<'ref list>
     abstract Register : 'ref -> unit
     abstract UnRegister : 'ref -> unit
     abstract All : 'ref list with get
@@ -15,7 +16,7 @@ type ActorRegistry = IRegistry<actorPath, actorRef>
 type InMemoryActorRegistry() =
     let syncObj = new ReaderWriterLockSlim()
     let actors : Trie.trie<actorRef> ref = ref Trie.empty
-    interface IRegistry<actorPath, actorRef> with
+    interface ActorRegistry with
         member x.All with get() = !actors |> Trie.values
 
         member x.Resolve(path) = 
@@ -25,6 +26,8 @@ type InMemoryActorRegistry() =
                 Trie.resolve comps !actors
             finally
                 syncObj.ExitReadLock()
+
+        member x.ResolveAsync(path, _) = async { return (x :> ActorRegistry).Resolve(path) }
 
         member x.Register(actor) =
             try
