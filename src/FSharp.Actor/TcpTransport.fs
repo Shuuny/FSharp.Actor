@@ -1,4 +1,4 @@
-﻿namespace FSharp.Actor.Remoting
+﻿namespace FSharp.Actor
 
 open System
 open System.Net
@@ -22,11 +22,11 @@ type TCPTransport(config:TcpConfig, ?logger) =
                     !~msg.Target <-- msg.Message
                   })
 
-    let tcp = new TCP(config, handler) 
+    let tcp = new TCP(config) 
     
 
     interface ITransport with
         member x.Scheme with get() = scheme
         member x.BasePath with get() = basePath
         member x.Post(target, payload) = Async.Start(tcp.PublishAsync((ActorPath.toNetAddress target).Endpoint, pickler.Pickle payload))
-        member x.Start(ct) = tcp.Start(ct)
+        member x.Start(ct) = tcp.Start(handler, ct)
