@@ -209,7 +209,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
 type ITransport =
     abstract Scheme : string with get
     abstract BasePath : actorPath with get
-    abstract Post : actorPath * obj -> unit
+    abstract Post : actorPath * Message<obj> -> unit
     abstract Start : CancellationToken -> unit
 
 type RemoteActor(path:actorPath, transport:ITransport) =

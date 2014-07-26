@@ -7,10 +7,11 @@ open FSharp.Actor.Remoting
 
 Remoting.enable (TcpConfig.Default(IPEndPoint.Create(6666)), 
                  UdpConfig.Default(), 
-                 [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(6999)))],
+                 [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(7001)))],
                   Async.DefaultCancellationToken)
 
-ActorHost.reportEvents (printfn "Event: %A")
+ActorHost.reportEvents(fun (evnt:ActorEvents) -> printfn "Event: %A" evnt)
+ActorHost.start()
 
 let actor = 
     actor {
@@ -29,9 +30,6 @@ let actor =
 let localActor = !!"ping"
 localActor <-- "Hello Local"
 
-type Message =
-    | SendToPing of string
-    | KeepLocal of string
 
 let dispatcher = !!"dispatcher"
 dispatcher <-- SendToPing("Been to a remote node")

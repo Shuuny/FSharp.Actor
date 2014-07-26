@@ -74,7 +74,7 @@ let universe =
                         | None -> { state with Items = Map.add id (ref x) state.Items}
                     | ItemDestroyed(id) -> 
                         { state with Items = Map.remove id state.Items }    
-                actor.Logger.DebugFormat(fun fmt -> fmt "%A" state.Items)
+                actor.Logger.Debug(sprintf "%A" state.Items)
                 return! loop state
             }
             loop UniverseState.Empty

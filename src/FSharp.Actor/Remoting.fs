@@ -32,7 +32,6 @@ module Remoting =
             async { 
                 try
                     let msg = pickler.UnPickle payload
-                    printfn "Recieved %A %A %A" address msg messageId
                     match msg with
                     | Resolve(path) -> 
                         let transport = 
@@ -46,7 +45,6 @@ module Remoting =
                                 let tcp = ActorHost.resolveTransport "actor.tcp" |> Option.get
                                 registry.Resolve path
                                 |> List.map (fun ref -> ActorRef.path ref |> ActorPath.rebase tcp.BasePath)
-                        printfn "Resolved %A" resolvedPaths
                         do! tcpChannel.PublishAsync(address.Endpoint, pickler.Pickle (Resolved resolvedPaths), messageId)
                     | Resolved _ as rs -> 
                         match messages.TryGetValue(messageId) with
@@ -107,7 +105,6 @@ module Remoting =
                                              let resultCell = new AsyncResultCell<ActorProtocol>()
                                              messages.TryAdd(msgId, resultCell) |> ignore
                                              do! tcpChannel.PublishAsync(client.Endpoint, pickler.Pickle(Resolve path), msgId)
-                                             printfn "Published Query to %A %A" client.Endpoint msgId
                                              let! result = resultCell.AwaitResult(?timeout = timeout)
                                              messages.TryRemove(msgId) |> ignore
                                              return handledResolveResponse result
@@ -133,4 +130,7 @@ module Remoting =
         )
             
             
+type TestMessage =
+    | SendToPing of string
+    | KeepLocal of string
 

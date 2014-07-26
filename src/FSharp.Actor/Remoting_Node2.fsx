@@ -9,11 +9,8 @@ Remoting.enable (TcpConfig.Default(IPEndPoint.Create(6667)),
                  [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(7000)))],
                   Async.DefaultCancellationToken)
 
-ActorHost.reportEvents (printfn "Event: %A")
-   
-type Message =
-    | SendToPing of string
-    | KeepLocal of string
+ActorHost.reportEvents(fun (evnt:ActorEvents) -> printfn "Event: %A" evnt)
+ActorHost.start()
 
 let node2Actor =
     actor {

@@ -18,8 +18,12 @@ type TCPTransport(config:TcpConfig, ?logger) =
 
     let handler =(fun (address:NetAddress, msgId, payload) -> 
                   async {
-                    let msg = pickler.UnPickle<Message<obj>>(payload)
-                    !~msg.Target <-- msg.Message
+                    try
+                        printfn "Received message from %A" address
+                        let msg = pickler.UnPickle<Message<obj>>(payload)
+                        !~msg.Target <-- msg.Message
+                    with e -> 
+                        logger.Error("Error handling message: " + e.Message, exn = e)
                   })
 
     let tcp = new TCP(config) 
