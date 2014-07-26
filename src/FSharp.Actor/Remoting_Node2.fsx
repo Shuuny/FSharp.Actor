@@ -1,15 +1,15 @@
 ﻿#load "FSharp.Actor.fsx"
 
+open System.Net
 open FSharp.Actor
 open FSharp.Actor.Remoting
 
-let actorTransports = 
-    [
-        (new TCPTransport(TcpConfig.Default(6667)) :> ITransport)
-    ]
+Remoting.enable (TcpConfig.Default(IPEndPoint.Create(6667)), 
+                 UdpConfig.Default(), 
+                 [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(7000)))],
+                  Async.DefaultCancellationToken)
 
-let node2 = ActorSystem.CreateRemoteable(8080, actorTransports, name = "node2")
-node2.ReportEvents()
+ActorHost.reportEvents (printfn "Event: %A")
    
 type Message =
     | SendToPing of string
@@ -33,9 +33,10 @@ let node2Actor =
                 return! loop()
             }
             loop())
-    }
-    
-node2.SpawnActor("actor.tcp", node2Actor)
+    } |> Actor.spawn
+
+let dispatcher = !!"dispatcher"
+
 !!"dispatcher" <-- SendToPing "Hello, from node 2"
 
 let p = !!"ping"

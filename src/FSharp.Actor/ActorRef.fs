@@ -50,4 +50,9 @@ module ActorRef =
 
 type actorRef with
     static member (-->) (msg,target) = post target msg
-    static member (<--) (target,msg)  = post target msg 
+    static member (<--) (target,msg)  = post target msg
+    
+[<AutoOpen>]
+module ActorRefOperations = 
+    
+    let inline (<-*) (targets, msg) = Seq.iter (fun (t:actorRef) -> t <-- msg) targets 

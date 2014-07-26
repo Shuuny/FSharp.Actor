@@ -9,11 +9,11 @@ module Remoting =
     
     type InvalidMessageException(innerEx:Exception) =
         inherit Exception("Unable to handle msg", innerEx)
-        
 
     type ActorProtocol = 
         | Resolve of actorPath
         | Resolved of actorPath list
+        | Error of string * exn
 
     type Beacon =
         | Beacon of NetAddress
@@ -22,7 +22,7 @@ module Remoting =
         
         let registry = new InMemoryActorRegistry() :> ActorRegistry
         let messages = new ConcurrentDictionary<Guid, AsyncResultCell<ActorProtocol>>()
-        let clients = new ConcurrentDictionary<NetAddress,Unit>()
+        let clients = new ConcurrentDictionary<string,NetAddress>()
         let pickler = new FsPickler()
         let tcpChannel : TCP = new TCP(tcpConfig)
         let udpChannel : UDP = new UDP(udpConfig)
@@ -31,43 +31,57 @@ module Remoting =
         let tcpHandler = (fun (address:NetAddress, messageId:TcpMessageId, payload:byte[]) -> 
             async { 
                 try
-                    match pickler.UnPickle payload with
+                    let msg = pickler.UnPickle payload
+                    printfn "Recieved %A %A %A" address msg messageId
+                    match msg with
                     | Resolve(path) -> 
                         let transport = 
-                            path.Transport |> Option.bind ActorHost.configuration.Transports.TryFind
+                            path.Transport |> Option.bind ActorHost.resolveTransport
                         let resolvedPaths = 
                             match transport with
                             | Some(t) -> 
                                 registry.Resolve path
                                 |> List.map (fun ref -> ActorRef.path ref |> ActorPath.rebase t.BasePath)
-                            | None -> []
-                        do! tcpChannel.PublishAsync(address.Endpoint,(pickler.Pickle (Resolved resolvedPaths)), messageId)
+                            | None ->
+                                let tcp = ActorHost.resolveTransport "actor.tcp" |> Option.get
+                                registry.Resolve path
+                                |> List.map (fun ref -> ActorRef.path ref |> ActorPath.rebase tcp.BasePath)
+                        printfn "Resolved %A" resolvedPaths
+                        do! tcpChannel.PublishAsync(address.Endpoint, pickler.Pickle (Resolved resolvedPaths), messageId)
                     | Resolved _ as rs -> 
                         match messages.TryGetValue(messageId) with
                         | true, resultCell -> resultCell.Complete(rs)
                         | false , _ -> ()
+                    | Error(msg, err) -> 
+                        logger.Error(sprintf "Remote error received %s" msg, exn = err)
                 with e -> 
-                   logger.Error("TCP: Unable to handle message", exn = new InvalidMessageException(e)) 
+                   let msg = sprintf "TCP: Unable to handle message : %s" e.Message
+                   logger.Error(msg, exn = new InvalidMessageException(e))
+                   do! tcpChannel.PublishAsync(address.Endpoint, pickler.Pickle (Error(msg,e)), messageId)
             }
         )
 
         let udpHandler = (fun (address:NetAddress, payload:byte[]) ->
             async {
                 try
-                    match pickler.UnPickle payload with
+                    let msg = pickler.UnPickle payload
+                    match msg with
                     | Beacon(netAddress) -> 
-                        if not <| clients.ContainsKey(netAddress)
+                        let key = netAddress.Endpoint.ToString()
+                        if not <| clients.ContainsKey(key)
                         then 
-                            clients.TryAdd(netAddress, ()) |> ignore
-                            logger.DebugFormat(fun f -> f "New actor registry found @ %A" netAddress)
+                            clients.TryAdd(key, netAddress) |> ignore
+                            logger.Debug(sprintf "New actor registry joined @ %A" netAddress)
                 with e -> 
                    logger.Error("UDP: Unable to handle message", exn = new InvalidMessageException(e))  
             }
         )
         
         do
+            let beaconBytes = pickler.Pickle(Beacon(NetAddress(tcpChannel.Endpoint)))
             tcpChannel.Start(tcpHandler, ct)
             udpChannel.Start(udpHandler, ct)
+            udpChannel.Heartbeat(5000, (fun () -> beaconBytes), ct)
         
         let handledResolveResponse result =
              match result with
@@ -75,9 +89,10 @@ module Remoting =
              | Some(Resolved rs) ->                        
                  List.choose (fun path -> 
                      path.Transport 
-                     |> Option.bind ActorHost.configuration.Transports.TryFind 
-                     |> Option.map (Actor.remote path)
+                     |> Option.bind ActorHost.resolveTransport
+                     |> Option.map (fun transport -> ActorRef(new RemoteActor(path, transport)))
                  ) rs
+             | Some(Error(msg, err)) -> raise (new Exception(msg, err))
              | None -> failwith "Resolving Path %A timed out" path
 
         interface IRegistry<actorPath, actorRef> with
@@ -86,12 +101,13 @@ module Remoting =
             member x.ResolveAsync(path, timeout) =
                  async {
                         let! remotePaths =
-                             clients.Keys
+                             clients.Values
                              |> Seq.map (fun client -> async { 
                                              let msgId = Guid.NewGuid()
                                              let resultCell = new AsyncResultCell<ActorProtocol>()
                                              messages.TryAdd(msgId, resultCell) |> ignore
                                              do! tcpChannel.PublishAsync(client.Endpoint, pickler.Pickle(Resolve path), msgId)
+                                             printfn "Published Query to %A %A" client.Endpoint msgId
                                              let! result = resultCell.AwaitResult(?timeout = timeout)
                                              messages.TryRemove(msgId) |> ignore
                                              return handledResolveResponse result
@@ -108,8 +124,13 @@ module Remoting =
             
             member x.UnRegister actor = registry.UnRegister actor
 
-    let enable(tcpConfig, udpConfig, ct) = 
-        ActorHost.configuration.Registry <- (new RemotableInMemoryActorRegistry(tcpConfig, udpConfig, ct))
+    let enable(tcpConfig, udpConfig, transports, ct) = 
+        let addTransport transports (transport:ITransport) =
+            Map.add transport.Scheme transport transports
+        ActorHost.configure (fun c -> 
+            c.Transports <- Seq.fold (addTransport) Map.empty transports
+            c.Registry <- (new RemotableInMemoryActorRegistry(tcpConfig, udpConfig, ct))
+        )
             
             
 

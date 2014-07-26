@@ -45,7 +45,11 @@ module internal Net =
             do! stream.WriteBytesAsync(msg)
             do! stream.FlushAsync().ContinueWith(ignore) |> Async.AwaitTask
         }
-        
+  
+[<AutoOpen>]
+module SystemNetExtensions =      
+    type IPEndPoint with
+        static member Create(?port:int) = new IPEndPoint(Net.getIPAddress(), defaultArg port (Net.getFirstFreePort()))
 
 [<CustomComparison; CustomEquality>]
 type NetAddress = 
@@ -55,6 +59,7 @@ type NetAddress =
         | :? IPEndPoint as ip -> ip.ToString().Equals(x.ToString())
         | :? NetAddress as add -> 
             match add with
+            | NetAddress(null) -> false
             | NetAddress(ip) ->  ip.ToString().Equals(x.ToString())
         | _ -> false
     member x.Endpoint 
@@ -153,11 +158,11 @@ type UDP(config:UdpConfig) =
             isStarted <- true
 
 type TcpConfig = {
-    ListenerEndpoint : IPEndPoint option
+    ListenerEndpoint : IPEndPoint
     Backlog : int
 }
 with
-    static member Default<'a>(?listenerEndpoint, ?backlog, ?serialiser, ?deserialiser) : TcpConfig = 
+    static member Default<'a>(listenerEndpoint, ?backlog) : TcpConfig = 
         {
             ListenerEndpoint = listenerEndpoint
             Backlog = defaultArg backlog 10000
@@ -165,36 +170,46 @@ with
 
 type TcpMessageId = Guid
 
+type TcpHandlerResponse = 
+    | Payload of byte[]
+    | Empty
+
 type TCP(config:TcpConfig) =        
     let mutable isStarted = false
-    let mutable handler = (fun (_,_,_) -> async { return () })
+    let mutable handler : (NetAddress * Guid * byte[] -> Async<Unit>) = (fun (_,_,_) -> async { return () })
+    let mutable listeningEndpoint : IPEndPoint = null
 
     let listener =
         lazy
-            if config.ListenerEndpoint.IsSome
-            then
-                let l = new TcpListener(config.ListenerEndpoint.Value)
-                l.Start(config.Backlog)
-                Some l
-            else None
+            let l = new TcpListener(config.ListenerEndpoint)
+            l.Start(config.Backlog)
+            listeningEndpoint <- config.ListenerEndpoint
+            l
 
     let rec messageHandler (listener:TcpListener) = async {
             let! client = listener.AcceptTcpClientAsync() |> Async.AwaitTask
             use client = client
-            use stream = client.GetStream()
+            let stream = client.GetStream()
             let! (message:byte[]) = stream.ReadBytesAsync()
             if message.Length > 16
-            then 
-                let guid = new Guid(message.[0..15])
-                do! handler (NetAddress.OfEndPoint client.Client.RemoteEndPoint, guid, message.[16..])
+            then
+                let messageIdBytes = message.[0..15]
+                let ipAddress = IPAddress(message.[16..19])
+                let port = BitConverter.ToInt32(message.[20..23], 0)
+                let endpoint = new IPEndPoint(ipAddress, port)
+                let guid = new Guid(messageIdBytes)
+                do! handler (NetAddress.OfEndPoint endpoint, guid, message.[24..])
             return! messageHandler listener
         }
 
     let publishAsync (endpoint:IPEndPoint) (messageId:Guid) payload = async {
-            use client = new TcpClient()
+            let ipEndpoint = listeningEndpoint.Address.GetAddressBytes()
+            let portBytes = BitConverter.GetBytes listeningEndpoint.Port
+            let header = Array.append (Array.append (messageId.ToByteArray()) ipEndpoint) portBytes
+            use client = new TcpClient()           
             client.Connect(endpoint)
             use stream  = client.GetStream()
-            do! stream.WriteBytesAsync(Array.append (messageId.ToByteArray()) payload)
+            do! stream.WriteBytesAsync(Array.append header payload)
             do! stream.FlushAsync().ContinueWith(ignore) |> Async.AwaitTask
         }
     
@@ -203,12 +218,12 @@ type TCP(config:TcpConfig) =
 
     member x.PublishAsync(endpoint, payload, ?messageId) = 
         publishAsync endpoint (defaultArg messageId (Guid.NewGuid())) payload
+    
+    member x.Endpoint = config.ListenerEndpoint
 
     member x.Start(msgHandler, ct) =
         if not isStarted
         then 
             handler <- msgHandler
-            match listener.Value with
-            | None -> ()
-            | Some l -> Async.Start(messageHandler l, ct)
+            Async.Start(messageHandler listener.Value, ct)
             isStarted <- true

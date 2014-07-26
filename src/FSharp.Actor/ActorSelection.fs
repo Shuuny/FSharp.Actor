@@ -16,7 +16,7 @@ type actorSelection =
 module ActorSelection =
 
     let ofPath (path:actorPath) =
-        ActorHost.configuration.Registry.Resolve path
+        ActorHost.resolveActor path
         |> ActorSelection
 
     let ofString (str:string) =

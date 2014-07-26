@@ -18,7 +18,7 @@ type TCPTransport(config:TcpConfig, ?logger) =
 
     let handler =(fun (address:NetAddress, msgId, payload) -> 
                   async {
-                    let msg = pickler.UnPickle<Message>(payload)
+                    let msg = pickler.UnPickle<Message<obj>>(payload)
                     !~msg.Target <-- msg.Message
                   })
 

@@ -13,10 +13,10 @@ open FSharp.Actor
 
 
 
-type Message = {
+type Message<'a> = {
     Sender : actorPath
     Target : actorPath
-    Message : obj
+    Message : 'a
 }
 
 type ActorEvents = 
@@ -51,10 +51,10 @@ type ActorLogger(path:actorPath, logger : Log.ILogger) =
     inherit Log.Logger(path.ToString(), logger)
 
 
-type ActorCell = {
+type ActorCell<'a> = {
     Logger : ActorLogger
     Children : actorRef list
-    Mailbox : IMailbox<Message>
+    Mailbox : IMailbox<Message<'a>>
     Self : actorRef
 }
 with 
@@ -70,13 +70,13 @@ type ActorConfiguration<'a> = {
     Parent : actorRef
     Children : actorRef list
     SupervisorStrategy : (ErrorContext -> unit)
-    Behaviour : (ActorCell -> Async<unit>)
-    Mailbox : IMailbox<Message> option
+    Behaviour : (ActorCell<'a> -> Async<unit>)
+    Mailbox : IMailbox<Message<'a>> option
     Logger : Log.ILogger
 }
                     
 type Actor<'a>(defn:ActorConfiguration<'a>) as self = 
-    let mailbox = defaultArg defn.Mailbox (new DefaultMailbox<Message>() :> IMailbox<_>)
+    let mailbox = defaultArg defn.Mailbox (new DefaultMailbox<Message<'a>>() :> IMailbox<_>)
     let systemMailbox = new DefaultMailbox<SystemMessage>() :> IMailbox<_>
     let logger = new ActorLogger(defn.Path, defn.Logger)
     let mutable cts = new CancellationTokenSource()
@@ -220,20 +220,6 @@ type RemoteActor(path:actorPath, transport:ITransport) =
         member x.Post(msg, sender) =
             transport.Post(path, { Target = path; Sender = ActorPath.rebase transport.BasePath sender; Message = msg })
         member x.Dispose() = ()
-
-module Actor = 
-    
-    let create (config:ActorConfiguration<'a>) = 
-        ActorRef(new Actor<_>(config) :> IActor)
-
-    let link (actor:actorRef) (supervisor:actorRef) = 
-        actor <-- SetParent(supervisor)
-
-    let unlink (actor:actorRef) = 
-        actor <-- SetParent(Null);
-
-    let remote path transport =
-        ActorRef(new RemoteActor(path, transport)) 
         
 
 [<AutoOpen>]

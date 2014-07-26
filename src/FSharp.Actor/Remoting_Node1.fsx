@@ -1,15 +1,16 @@
 ﻿#load "FSharp.Actor.fsx"
 
+open System.Net
 open FSharp.Actor
 open FSharp.Actor.Remoting
 
-let actorTransports = 
-    [
-        (new TCPTransport(TcpConfig.Default(6666)) :> ITransport)
-    ]
 
-let node1 = ActorSystem.CreateRemoteable(8081, actorTransports, name = "node1")
-node1.ReportEvents()
+Remoting.enable (TcpConfig.Default(IPEndPoint.Create(6666)), 
+                 UdpConfig.Default(), 
+                 [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(6999)))],
+                  Async.DefaultCancellationToken)
+
+ActorHost.reportEvents (printfn "Event: %A")
 
 let actor = 
     actor {
@@ -18,14 +19,12 @@ let actor =
             let log = ctx.Logger
             let rec loop () = async {
                 let! msg = ctx.Receive()
-                log.InfoFormat (fun fmt -> fmt "%s received from %A" msg.Message msg.Sender)
+                log.Info (sprintf "%s received from %A" msg.Message msg.Sender)
                 return! loop()
             }
             loop()
         )
-    }
-
-node1.SpawnActor("actor.tcp", actor)
+    } |> Actor.spawn
 
 let localActor = !!"ping"
 localActor <-- "Hello Local"

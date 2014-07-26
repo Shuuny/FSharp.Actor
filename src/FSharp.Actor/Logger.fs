@@ -223,33 +223,18 @@ module Log =
     
          member x.Write(level, message, ?trace, ?exn) = 
              write logger level path (defaultArg trace TraceHeader.Empty) exn message
-
-         member x.WriteFormat(level, format, ?trace, ?exn) = 
-             writef logger level path (defaultArg trace TraceHeader.Empty) exn format
     
          member x.Info(message, ?trace, ?exn) =
              x.Write(Info, message, ?trace = trace, ?exn = exn)
-
-         member x.InfoFormat(message, ?trace, ?exn) =
-             x.WriteFormat(Info, message, ?trace = trace, ?exn = exn)
     
          member x.Debug(message, ?trace, ?exn) =
              x.Write(Debug, message, ?trace = trace, ?exn = exn)
-
-         member x.DebugFormat(message, ?trace, ?exn) =
-             x.WriteFormat(Debug, message, ?trace = trace, ?exn = exn)
     
          member x.Error(message, ?trace, ?exn) =
              x.Write(Error, message, ?trace = trace, ?exn = exn)
-
-         member x.ErrorFormat(message, ?trace, ?exn) =
-             x.WriteFormat(Error, message, ?trace = trace, ?exn = exn)
     
          member x.Fatal(message, ?trace, ?exn) =
              x.Write(Fatal, message, ?trace = trace, ?exn = exn)
-
-         member x.FatalFormat(message, ?trace, ?exn) =
-             x.WriteFormat(Fatal, message, ?trace = trace, ?exn = exn)
 
     let defaultFor level =
        if level >= Warn then

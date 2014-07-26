@@ -34,7 +34,7 @@ type DefaultEventStream(logger:Log.ILogger) =
             | true, f -> 
                 try 
                     f(event) 
-                with e -> logger.ErrorFormat((fun fmt -> fmt "Error occured handling event %A" event), exn = e)
+                with e -> logger.Error(sprintf "Error occured handling event %A" event, exn = e)
             | false, _ -> ()
             return! worker()
         }
