@@ -3,6 +3,7 @@
 open System
 open System.Net
 open System.Threading
+open System.Collections.Concurrent
 
 type IRegistry<'key, 'ref> = 
     abstract Resolve : 'key -> 'ref list
@@ -44,3 +45,28 @@ type InMemoryActorRegistry() =
                 actors := Trie.remove components !actors
             finally
                 syncObj.ExitWriteLock()
+
+type ConcurrentDictionaryBasedRegistry<'key, 'ref>(keyGetter : 'ref -> 'key) = 
+    let store = new ConcurrentDictionary<'key, 'ref>()
+
+    interface IRegistry<'key, 'ref> with
+        member x.All with get() = store.Values |> Seq.toList
+
+        member x.Resolve(key) = 
+            match store.TryGetValue(key) with
+            | true, v -> [v]
+            | false, _ -> []
+
+        member x.ResolveAsync(path, _) = async { return (x :> IRegistry<'key, 'ref>).Resolve(path) }
+
+        member x.Register(ref:'ref) =
+            let key = keyGetter ref
+            if store.ContainsKey(key)
+            then failwithf "Failed to add %A an instance with the same key is already registered" ref
+            elif store.TryAdd(key, ref)
+            then ()
+            else failwithf "Could not add %A to the registry" key
+
+        member x.UnRegister ref = 
+            let key = keyGetter ref
+            store.TryRemove(key) |> ignore

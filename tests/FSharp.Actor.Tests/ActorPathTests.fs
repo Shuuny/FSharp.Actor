@@ -83,7 +83,7 @@ type ``With Actor Path``() =
 
     [<Test>]
     member t.``Should stay unchanged when a realtive URI is used to rebase``() = 
-        let basePath = actorPath.OfUri(new Uri("/base/path", UriKind.Relative))
+        let basePath = ActorPath.ofUri(new Uri("/base/path", UriKind.Relative))
         let actorPath = ActorPath.ofString "actor://*@localhost/actor/mine"
         let result = ActorPath.rebase basePath actorPath
         result |> should equal actorPath

@@ -2,16 +2,14 @@
 
 open System.Net
 open FSharp.Actor
-open FSharp.Actor.Remoting
 
+ActorRemoting.enable (TcpConfig.Default(IPEndPoint.Create(6666)), 
+                      UdpConfig.Default(), 
+                      [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(7001)))],
+                      Async.DefaultCancellationToken)
 
-Remoting.enable (TcpConfig.Default(IPEndPoint.Create(6666)), 
-                 UdpConfig.Default(), 
-                 [new TCPTransport(TcpConfig.Default(IPEndPoint.Create(7001)))],
-                  Async.DefaultCancellationToken)
-
-ActorHost.reportEvents(fun (evnt:ActorEvents) -> printfn "Event: %A" evnt)
-ActorHost.start()
+ActorHost.SubscribeEvents(fun (evnt:ActorEvents) -> printfn "Event: %A" evnt)
+ActorHost.Start()
 
 let actor = 
     actor {

@@ -1,14 +1,12 @@
 ﻿namespace System
 open System.Reflection
-open System.Runtime.CompilerServices
 
 [<assembly: AssemblyTitleAttribute("FSharp.Actor")>]
 [<assembly: AssemblyProductAttribute("FSharp.Actor")>]
 [<assembly: AssemblyDescriptionAttribute("An actor library for F#.")>]
-[<assembly: AssemblyVersionAttribute("1.0")>]
-[<assembly: AssemblyFileVersionAttribute("1.0")>]
-[<assembly: InternalsVisibleToAttribute("FSharp.Actor.Tests")>]
+[<assembly: AssemblyVersionAttribute("0.0.1")>]
+[<assembly: AssemblyFileVersionAttribute("0.0.1")>]
 do ()
 
 module internal AssemblyVersionInformation =
-    let [<Literal>] Version = "1.0"
+    let [<Literal>] Version = "0.0.1"

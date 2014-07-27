@@ -52,6 +52,7 @@
   <Import Project="$(FSharpTargetsPath)" Condition="Exists('$(FSharpTargetsPath)')" />
   <ItemGroup>
     <Compile Include="Helpers.fs" />
+    <Compile Include="Serialization.fs" />
     <Compile Include="Trie.fs" />
     <Compile Include="Async.fs" />
     <Compile Include="Logger.fs" />
@@ -65,7 +66,7 @@
     <Compile Include="ActorHost.fs" />
     <Compile Include="ActorSelection.fs" />
     <Compile Include="TcpTransport.fs" />
-    <Compile Include="Remoting.fs" />
+    <Compile Include="ActorRemoting.fs" />
     <Compile Include="AssemblyInfo.fs" />
     <None Include="FSharp.Actor.fsx" />
     <None Include="SpaceShooter.fsx" />

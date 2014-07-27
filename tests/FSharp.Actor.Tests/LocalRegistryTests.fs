@@ -18,7 +18,7 @@ type ``With Local Registry``() =
     
     [<Test>]
     member t.``I can register and resolve an actor with full URI``() = 
-        let registry = new InMemoryActorRegistry() :> IActorRegistry
+        let registry = new InMemoryActorRegistry() :> ActorRegistry
         let actor = actor "actor.transport://node1@localhost:6667/test/actor"
         registry.Register actor
         let result = registry.Resolve(ActorPath.ofString "actor.transport://node1@localhost:6667/test/actor")
@@ -26,7 +26,7 @@ type ``With Local Registry``() =
 
     [<Test>]
     member t.``I can register and resolve an actor with only path``() = 
-        let registry = new InMemoryActorRegistry() :> IActorRegistry
+        let registry = new InMemoryActorRegistry() :> ActorRegistry
         let actor = actor "actor.transport://node1@localhost:6667/test/actor"
         registry.Register actor
         let result = registry.Resolve(ActorPath.ofString "test/actor")

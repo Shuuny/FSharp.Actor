@@ -19,7 +19,7 @@ type Message<'a> = {
     Message : 'a
 }
 
-type ActorEvents = 
+type ActorEvent = 
     | ActorStarted of actorRef
     | ActorShutdown of actorRef
     | ActorRestart of actorRef
@@ -79,11 +79,14 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
     let mailbox = defaultArg defn.Mailbox (new DefaultMailbox<Message<'a>>() :> IMailbox<_>)
     let systemMailbox = new DefaultMailbox<SystemMessage>() :> IMailbox<_>
     let logger = new ActorLogger(defn.Path, defn.Logger)
+    let firstArrivalGate = new ManualResetEventSlim() 
+
     let mutable cts = new CancellationTokenSource()
     let mutable messageHandlerCancel = new CancellationTokenSource()
     let mutable defn = defn
     let mutable ctx = { Self = ActorRef(self); Mailbox = mailbox; Logger = logger; Children = defn.Children; }
     let mutable status = ActorStatus.Stopped
+
 
     let publishEvent event = 
         Option.iter (fun (es:IEventStream) -> es.Publish(event)) defn.EventStream
@@ -94,7 +97,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
     let shutdown() = 
         async {
             messageHandlerCancel.Cancel()
-            publishEvent(ActorEvents.ActorShutdown(ctx.Self))
+            publishEvent(ActorEvent.ActorShutdown(ctx.Self))
             match status with
             | ActorStatus.Errored(err) -> logger.Debug("shutdown", exn = err)
             | _ -> logger.Debug("shutdown")
@@ -105,7 +108,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
     let handleError (err:exn) =
         async {
             setStatus(ActorStatus.Errored(err))
-            publishEvent(ActorEvents.ActorErrored(ctx.Self, err))
+            publishEvent(ActorEvent.ActorErrored(ctx.Self, err))
             match defn.Parent with
             | ActorRef(actor) -> 
                 actor.Post(Errored({ Error = err; Sender = ctx.Self; Children = ctx.Children }),ctx.Path)
@@ -117,14 +120,17 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
         setStatus ActorStatus.Running
         async {
             try
+                firstArrivalGate.Wait(messageHandlerCancel.Token)
                 do! defn.Behaviour ctx
+                setStatus ActorStatus.Stopped
+                publishEvent(ActorEvent.ActorShutdown ctx.Self)
             with e -> 
                 do! handleError e
         }
 
     let rec restart includeChildren =
         async { 
-            publishEvent(ActorEvents.ActorRestart(ctx.Self))
+            publishEvent(ActorEvent.ActorRestart(ctx.Self))
             do messageHandlerCancel.Cancel()
 
             if includeChildren
@@ -178,7 +184,7 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
         messageHandlerCancel <- new CancellationTokenSource()
         Async.Start(async {
                         CallContext.LogicalSetData("actor", ctx.Self)
-                        publishEvent(ActorEvents.ActorStarted(ctx.Self))
+                        publishEvent(ActorEvent.ActorStarted(ctx.Self))
                         do! messageHandler()
                     }, messageHandlerCancel.Token)
 
@@ -194,11 +200,12 @@ type Actor<'a>(defn:ActorConfiguration<'a>) as self =
         member x.Post(msg, sender) =
                match msg with
                | :? SystemMessage as msg -> systemMailbox.Post(msg)
-               | msg -> mailbox.Post({Target = ctx.Path; Sender = sender; Message = unbox<'a> msg})
+               | msg -> (x :> IActor<'a>).Post(unbox<'a> msg, sender)
 
     interface IActor<'a> with
         member x.Path with get() = defn.Path
         member x.Post(msg:'a, sender) =
+             if not(firstArrivalGate.IsSet) then firstArrivalGate.Set()
              mailbox.Post({Target = ctx.Path; Sender = sender; Message = msg}) 
 
     interface IDisposable with  
@@ -210,7 +217,7 @@ type ITransport =
     abstract Scheme : string with get
     abstract BasePath : actorPath with get
     abstract Post : actorPath * Message<obj> -> unit
-    abstract Start : CancellationToken -> unit
+    abstract Start : ISerializer * CancellationToken -> unit
 
 type RemoteActor(path:actorPath, transport:ITransport) =
     override x.ToString() = path.ToString()
@@ -245,6 +252,9 @@ module ActorConfiguration =
         member x.Inherits(ctx:ActorConfiguration<'a>, b:ActorConfiguration<_>) = b
         [<CustomOperation("path", MaintainsVariableSpace = true)>]
         member x.Path(ctx:ActorConfiguration<'a>, name) = 
+            {ctx with Path = name }
+        [<CustomOperation("name", MaintainsVariableSpace = true)>]
+        member x.Name(ctx:ActorConfiguration<'a>, name) = 
             {ctx with Path = ActorPath.ofString name }
         [<CustomOperation("mailbox", MaintainsVariableSpace = true)>]
         member x.Mailbox(ctx:ActorConfiguration<'a>, mailbox) = 
